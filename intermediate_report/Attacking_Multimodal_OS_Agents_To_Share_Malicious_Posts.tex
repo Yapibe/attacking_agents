@@ -1,0 +1,122 @@
+\documentclass[sigconf]{acmart}
+
+\usepackage{graphicx}
+\usepackage{booktabs} % For formal tables
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage{balance} % Add balance package
+
+\settopmatter{printacmref=true}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+
+%% Metadata Information
+\title{Attacking Multimodal OS Agents To Share Malicious Posts}
+
+\author{Yair Pickholz}
+\affiliation{
+  \institution{Tel Aviv University}
+  \city{Tel Aviv}
+  \country{Israel}
+}
+\email{yairp1@mail.tau.ac.il}
+
+\author{Amit Tal}
+\affiliation{
+  \institution{Tel Aviv University}
+  \city{Tel Aviv}
+  \country{Israel}
+}
+\email{amittal@mail.tau.ac.il}
+
+\begin{document}
+
+\begin{abstract}
+Multimodal OS agents leverage vision-language models (VLMs) to interact with graphical user interfaces, performing tasks autonomously through APIs that control mouse movements, keyboard inputs, and screenshot captures. Recent research has identified malicious image patches (MIPs) as a significant attack vector against these agents. These adversarially perturbed images, when captured in screenshots, can hijack OS agents to perform harmful actions. Our project extends this attack vector by focusing specifically on MIPs designed to manipulate OS agents into sharing and liking malicious content on social media platforms. This creates a potential self-propagating attack mechanism where compromised agents spread MIPs to other users' screens, creating a cascade effect that could rapidly amplify harmful content across digital ecosystems. We propose methods for designing these specialized MIPs and evaluate their effectiveness across different OS agent implementations and social media platforms.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+Recent advances in artificial intelligence have led to the development of multimodal OS agents—systems that combine vision-language models (VLMs) with APIs to interact directly with computer graphical interfaces. These agents can autonomously perform complex tasks by processing screenshots, making decisions based on visual information, and executing actions through mouse clicks and keyboard inputs. While this represents a significant advancement in human-computer interaction, it also introduces novel security vulnerabilities.
+
+As demonstrated by recent research \cite{AttackingMultimodalOSAgentsWithMaliciousImagePatches}, malicious image patches (MIPs) can be crafted to exploit these agents. These patches contain adversarial perturbations that, while nearly imperceptible to humans, can hijack an OS agent's decision-making process when captured in a screenshot. The original research showed that MIPs could force agents to perform harmful actions like visiting malicious websites or executing dangerous commands.
+
+Our work builds upon this foundation by exploring a particularly concerning attack vector: MIPs designed specifically to manipulate OS agents into sharing and liking malicious content on social media platforms. This creates a potential self-propagating attack mechanism, where each compromised agent spreads the malicious content to other users, whose agents may in turn be compromised when they view the content. The result could be a rapid, AI-driven propagation of harmful material across digital platforms.
+
+The significance of this attack vector lies in its potential scale and impact. As OS agents become more widely adopted for automating social media interactions, a successful attack could reach thousands or even millions of users in a short time. Furthermore, because the attack leverages the legitimate sharing mechanisms of social platforms, it may be difficult to detect and mitigate using conventional security measures.
+
+\section{Related Work}
+The foundation of our research builds upon several key areas in AI security and adversarial machine learning:
+
+\subsection{Adversarial Attacks on Vision Models}
+Adversarial examples for vision models have been extensively studied since Szegedy et al. \cite{SzegedyZSBEGF13} first demonstrated that neural networks are vulnerable to imperceptible perturbations. Subsequent work by Goodfellow et al. \cite{GoodfellowSS14} introduced the fast gradient sign method (FGSM), making adversarial example generation more efficient. These techniques have been refined over time, with projected gradient descent (PGD) \cite{MadryMSTV18} emerging as a powerful approach for creating adversarial examples. Our work leverages these established techniques for creating visually subtle perturbations that can influence OS agents.
+
+\subsection{Vulnerabilities in Vision-Language Models}
+Recent research has shown that multimodal vision-language models are vulnerable to various forms of adversarial attacks. Carlini et al. \cite{CarliniWZDLGS22} demonstrated that VLMs can be manipulated through carefully crafted inputs. Qi et al. \cite{QiLDLJ23} extended this work by showing that these vulnerabilities persist even in models fine-tuned to be "helpful and harmless." Our approach builds on these findings but focuses specifically on OS agents that use VLMs for decision-making.
+
+\subsection{OS Agent Security}
+The security of OS agents represents a relatively new research area. The work most directly related to our project is by Zeng et al. \cite{AttackingMultimodalOSAgentsWithMaliciousImagePatches}, who introduced the concept of malicious image patches (MIPs) as an attack vector against OS agents. They demonstrated that these patches could cause agents to perform harmful actions when they appeared in screenshots. Our work extends their approach by focusing specifically on social media interactions and exploring the potential for self-propagating attacks.
+
+\subsection{Social Media Manipulation}
+Research on automated social media manipulation has primarily focused on bot networks and fake account creation \cite{FerraraSVJM16}. However, the potential for AI agents to be weaponized for spreading malicious content represents a new frontier. Our work bridges the gap between adversarial machine learning and social media manipulation by exploring how compromised OS agents could be used to spread harmful content at scale.
+
+\section{Work Plan}
+Our technical approach consists of the following key components:
+
+\subsection{Development Environment Setup}
+We will establish a controlled testing environment that simulates social media interactions using OS agents. This will include:
+\begin{itemize}
+    \item Setting up a local instance of a social media-like platform where interactions can be safely tested
+    \item Implementing multiple OS agent configurations using different VLMs (including Llama 3.2 Vision models) and screen parsers
+    \item Creating instrumentation to track and measure the propagation of malicious content
+\end{itemize}
+
+\subsection{MIP Design and Optimization}
+We will design specialized MIPs targeted at manipulating social media interactions:
+\begin{itemize}
+    \item Adapting the optimization approach from Zeng et al. \cite{AttackingMultimodalOSAgentsWithMaliciousImagePatches} to focus on social media sharing actions
+    \item Using projected gradient descent (PGD) with Adam optimizer to create patches that maximize the likelihood of sharing behavior
+    \item Developing both targeted MIPs (optimized for specific prompts and screenshots) and universal MIPs (designed to work across various scenarios)
+    \item Implementing constraints to ensure patches remain visually subtle and confined to appropriate regions of the screen
+\end{itemize}
+
+\subsection{Attack Vector Implementation}
+We will implement and test the following attack vectors:
+\begin{itemize}
+    \item Direct embedding of MIPs in social media posts
+    \item Incorporation of MIPs in profile pictures and background images
+    \item Development of MIPs that can survive image compression and resizing commonly applied by social media platforms
+\end{itemize}
+
+\subsection{Propagation Analysis}
+We will analyze the potential spread of malicious content through compromised OS agents:
+\begin{itemize}
+    \item Developing simulation models to estimate the rate and reach of propagation under various conditions
+    \item Identifying factors that influence propagation success, such as agent prevalence, user interaction patterns, and content visibility
+    \item Analyzing how different social media platform algorithms might accelerate or mitigate the spread
+\end{itemize}
+
+\subsection{Mitigation Strategies}
+We will explore potential defenses against these attacks:
+\begin{itemize}
+    \item Evaluating detection methods for identifying MIPs in social media content
+    \item Developing modifications to OS agent architectures that could increase resistance to these attacks
+    \item Proposing platform-level interventions that could limit the spread of malicious content
+\end{itemize}
+
+\subsection{Evaluation Metrics}
+Our evaluation will focus on the following metrics:
+\begin{itemize}
+    \item Attack success rate (ASR) across different OS agent implementations
+    \item Transferability of MIPs across different VLMs and screen parsers
+    \item Propagation speed and reach in simulated environments
+    \item Visual imperceptibility of the patches (measured using standard metrics like PSNR and SSIM)
+\end{itemize}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\balance % Add balance command before end of document
+
+\end{document}
