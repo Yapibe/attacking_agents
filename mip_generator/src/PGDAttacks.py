@@ -9,7 +9,7 @@ class VLMWhiteBoxPGDAttack:
     """
 
     def __init__(self, model, tokenizer, eps=8 / 255., n=50, alpha=1 / 255.,
-                 rand_init=True, early_stop=True):
+                 rand_init=True, early_stop=True, wandb_run=None):
         """
         Parameters:
         - model: VLM agent model with image + text input, outputs logits or token sequences
@@ -19,6 +19,7 @@ class VLMWhiteBoxPGDAttack:
         - alpha: step size
         - rand_init: whether to randomly initialize image
         - early_stop: stop if target sequence is already achieved
+        - wandb_run: optional wandb run object for logging
         """
         self.model = model
         self.tokenizer = tokenizer
@@ -27,48 +28,66 @@ class VLMWhiteBoxPGDAttack:
         self.eps = eps
         self.rand_init = rand_init
         self.early_stop = early_stop
+        self.wandb_run = wandb_run
         self.loss_func = nn.CrossEntropyLoss(reduction='mean')  # token-level loss
 
-    def execute(self, image, target_token_ids, prompt=None):
+    def execute(self, pixel_values, input_ids, attention_mask, labels):
         """
         Performs a targeted PGD attack on an input image.
 
         Args:
-            image (Tensor): Input image tensor, shape (B, C, H, W), values in [0,1]
-            target_token_ids (Tensor): Target output tokens (B, L)
-            prompt (str or list of str): Optional prompt for generation context
+            pixel_values (Tensor): Input image tensor, shape (B, C, H, W), values in [0,1]
+            input_ids (Tensor): Input token ids.
+            attention_mask (Tensor): Attention mask for the input tokens.
+            labels (Tensor): Target output tokens (B, L)
 
         Returns:
             Adversarial image tensor
         """
-        x_adv = image.clone().detach()
+        x_adv = pixel_values.clone().detach()
 
         if self.rand_init:
-            x_adv += torch.empty_like(image).uniform_(-self.eps, self.eps)
+            x_adv += torch.empty_like(pixel_values).uniform_(-self.eps, self.eps)
             x_adv = torch.clamp(x_adv, 0, 1)
 
         x_adv.requires_grad = True
 
         for i in range(self.n):
             # VLM models might need prompt text and image
-            outputs = self.model(image=x_adv, prompt=prompt, labels=target_token_ids)
-            logits = outputs.logits  # shape: (B, L, vocab_size)
+            outputs = self.model(pixel_values=x_adv, input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
 
-            # Reshape for token-level CE loss
-            B, L, V = logits.shape
-            loss = self.loss_func(logits.view(B * L, V), target_token_ids.view(-1))
-            loss = -loss  # Minimize the loss => maximize likelihood of target
+            if self.wandb_run:
+                self.wandb_run.log({"step": i, "loss": loss.item()})
+            
+            # We want to maximize the probability of the target tokens, so we minimize the negative loss
+            # The model already returns the loss for the labels, so we can just use it.
 
             grad = torch.autograd.grad(loss, x_adv, only_inputs=True)[0]
-            x_adv = x_adv + self.alpha * torch.sign(grad)
-            x_adv = torch.min(torch.max(x_adv, image - self.eps), image + self.eps)
+            x_adv = x_adv - self.alpha * torch.sign(grad) # Use - because we want to minimize the loss
+            x_adv = torch.min(torch.max(x_adv, pixel_values - self.eps), pixel_values + self.eps)
             x_adv = torch.clamp(x_adv, 0, 1).detach()
             x_adv.requires_grad = True
 
-            if self.early_stop:
+            if self.early_stop and (i % 10 == 0 or i == self.n - 1): # Check every 10 steps
                 with torch.no_grad():
-                    gen_ids = self.model.generate(image=x_adv, prompt=prompt)
-                    if (gen_ids == target_token_ids).all():
+                    # For early stopping, we generate text and see if it matches the target
+                    # We need to decode the labels to get the target text
+                    target_text_full = self.tokenizer.decode(labels[0], skip_special_tokens=True)
+                    # The actual target is what comes after "ASSISTANT:"
+                    target_text = target_text_full.split("ASSISTANT:")[1].strip()
+
+                    # Generate from the adversarial image
+                    gen_ids = self.model.generate(pixel_values=x_adv, max_new_tokens=50)
+                    gen_text = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
+                    
+                    # The generated text includes the prompt, so we check if our target is in the newly generated part
+                    gen_assistant_part = gen_text.split("ASSISTANT:")[-1].strip()
+
+                    if target_text in gen_assistant_part:
+                        print(f"\nEarly stopping at step {i}. Target achieved.")
+                        if self.wandb_run:
+                            self.wandb_run.log({"early_stop_step": i})
                         break
 
         return x_adv
