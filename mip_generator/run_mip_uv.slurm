@@ -30,25 +30,7 @@ else
 fi
 
 # --- Python Environment Activation ---
-VENV_DIR=".venv"
-
-# Check if the virtual environment exists. If not, exit with an error.
-if [ ! -d "$VENV_DIR" ]; then
-  echo "Error: Virtual environment not found at $VENV_DIR"
-  echo "Please create it manually before running this script."
-  exit 1
-fi
-
-# Activate the existing virtual environment
-source $VENV_DIR/bin/activate
-echo "Virtual environment activated."
-
-# --- CUDA Setup ---
-# Set the CUDA library path (assuming this is correct for your server)
-export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH
-
-# --- Execution ---
-# Run the Python script
-echo "Starting MIP generation..."
-python scripts/generate_mip.py
+# `uv run` handles venv creation, dependency syncing, and execution.
+echo "Starting MIP generation with 'uv run'..."
+uv run python scripts/generate_mip.py
 echo "MIP generation finished."
