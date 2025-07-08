@@ -29,23 +29,19 @@ else
   echo "Warning: .env file not found. Make sure WANDB_API_KEY is set."
 fi
 
-# --- Python Environment Setup with venv and uv ---
+# --- Python Environment Activation ---
 VENV_DIR=".venv"
 
-# Create a virtual environment if it doesn't exist
+# Check if the virtual environment exists. If not, exit with an error.
 if [ ! -d "$VENV_DIR" ]; then
-  echo "Creating Python virtual environment in $VENV_DIR..."
-  python3 -m venv $VENV_DIR
+  echo "Error: Virtual environment not found at $VENV_DIR"
+  echo "Please create it manually before running this script."
+  exit 1
 fi
 
-# Activate the virtual environment
+# Activate the existing virtual environment
 source $VENV_DIR/bin/activate
 echo "Virtual environment activated."
-
-# Install/update dependencies using uv from pyproject.toml
-# This installs the project in editable mode, which is best practice.
-echo "Installing dependencies from pyproject.toml using uv..."
-uv pip install -e .
 
 # --- CUDA Setup ---
 # Set the CUDA library path (assuming this is correct for your server)
