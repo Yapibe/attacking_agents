@@ -79,4 +79,26 @@ This will:
 
 You can customize the model, input image, and target prompt by editing the configuration section in `scripts/generate_mip.py`.
 
+### Running on a Slurm Cluster
+
+For more intensive generation tasks, a Slurm script is provided to run the process on a compute cluster.
+
+1.  **Navigate to the project directory:**
+    ```bash
+    cd mip_generator
+    ```
+
+2.  **Configure the script:**
+    *   Open `run_mip_uv.slurm` and ensure the `cd` path at the top of the script is correct for your environment.
+    *   If you need to use environment variables (e.g., for a Hugging Face token), create a `.env` file in the `mip_generator` directory. The script will load it automatically.
+
+3.  **Submit the job:**
+    ```bash
+    sbatch run_mip_uv.slurm
+    ```
+
+4.  **Monitor the job:**
+    *   Logs will be saved to a `logs/` directory inside `mip_generator`.
+    *   Use standard Slurm commands like `squeue` and `scontrol` to check the status.
+
 ---

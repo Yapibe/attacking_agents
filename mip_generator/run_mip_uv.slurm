@@ -26,11 +26,33 @@ if [ -f .env ]; then
   set +a # Stop automatically exporting
   echo "Loaded environment variables from .env file."
 else
-  echo "Warning: .env file not found. Make sure WANDB_API_KEY is set."
+  echo "Warning: .env file not found"
 fi
 
-# --- Python Environment Activation ---
-# `uv run` handles venv creation, dependency syncing, and execution.
-echo "Starting MIP generation with 'uv run'..."
-uv run python scripts/generate_mip.py
+# --- Python Environment Setup with venv and uv ---
+VENV_DIR=".venv"
+
+# Create a virtual environment if it doesn't exist
+if [ ! -d "$VENV_DIR" ]; then
+  echo "Creating Python virtual environment in $VENV_DIR..."
+  python3 -m venv $VENV_DIR
+fi
+
+# Activate the virtual environment
+source $VENV_DIR/bin/activate
+echo "Virtual environment activated."
+
+# Install/update dependencies using uv from pyproject.toml
+# This installs the project in editable mode, which is best practice.
+echo "Installing dependencies from pyproject.toml using uv..."
+uv pip install -e .
+
+# --- CUDA Setup ---
+# Set the CUDA library path (assuming this is correct for your server)
+export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH
+
+# --- Execution ---
+# Run the Python script
+echo "Starting MIP generation..."
+python scripts/generate_mip.py
 echo "MIP generation finished."
