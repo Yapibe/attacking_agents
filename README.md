@@ -56,6 +56,10 @@ This project uses `uv` for fast and efficient environment management.
     uv venv
     source .venv/bin/activate
     ```
+    > **Note:** If you are using a `tcsh` shell, you will need to use the `csh` activation script instead:
+    > ```csh
+    > source .venv/bin/activate.csh
+    > ```
 
 3.  **Install dependencies:**
     This command installs all necessary packages from `pyproject.toml`.
