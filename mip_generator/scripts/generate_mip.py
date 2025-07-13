@@ -88,6 +88,8 @@ def main():
     pixel_values = inputs['pixel_values']
     input_ids = inputs['input_ids']
     attention_mask = inputs['attention_mask']
+    # The Llava-NeXT model requires the original image sizes.
+    image_sizes = inputs.get('image_sizes')
     labels = input_ids.clone()
     logging.info("Inputs prepared.")
 
@@ -108,7 +110,8 @@ def main():
         pixel_values=pixel_values,
         input_ids=input_ids,
         attention_mask=attention_mask,
-        labels=labels
+        labels=labels,
+        image_sizes=image_sizes
     )
     logging.info("PGD attack finished.")
 

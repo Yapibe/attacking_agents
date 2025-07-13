@@ -34,7 +34,7 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
     # --- Load Processor ---
     logger.info("Loading processor from pretrained...")
     try:
-        processor = AutoProcessor.from_pretrained(model_id)
+        processor = AutoProcessor.from_pretrained(model_id, use_fast=True)
         logger.info("Processor loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load processor: {e}")
