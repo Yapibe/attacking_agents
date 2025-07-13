@@ -13,7 +13,7 @@
 
 # --- Setup ---
 # Set the Hugging Face cache directory to the desired shared path
-export HF_HOME=/home/sharifm/teaching/tml-0368-4075/2025-spring/yairp1/
+setenv HF_HOME /home/sharifm/teaching/tml-0368-4075/2025-spring/yairp1/
 echo "Hugging Face cache directory set to: $HF_HOME"
 
 # Navigate to the project's execution directory
@@ -46,14 +46,10 @@ fi
 source $VENV_DIR/bin/activate.csh
 echo "Virtual environment activated."
 
-# Install/update dependencies using uv from pyproject.toml
-# This installs the project in editable mode, which is best practice.
-echo "Installing dependencies from pyproject.toml using uv..."
-uv pip install -e .
 
 # --- CUDA Setup ---
-# Set the CUDA library path (assuming this is correct for your server)
-export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH
+# Set the CUDA library path
+setenv LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH
 
 # --- Execution ---
 # Run the Python script as a module to ensure correct import paths
