@@ -51,7 +51,6 @@ def main():
     logging.info("--- Starting MIP Generation ---")
 
     # --- 0. Initialize W&B ---
-    logging.info("Initializing Weights & Biases...")
     try:
         run = wandb.init(project="mip-generator-attack", config=config)
         logging.info(f"W&B run initialized successfully. Run name: {run.name}")

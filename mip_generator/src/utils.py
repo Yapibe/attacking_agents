@@ -16,7 +16,6 @@ def load_image(image_path: str) -> Image.Image:
     Returns:
         Image.Image: The loaded image.
     """
-    logger.info(f"Loading image from path: {image_path}")
     try:
         image = Image.open(image_path).convert("RGB")
         logger.info("Image loaded and converted to RGB successfully.")

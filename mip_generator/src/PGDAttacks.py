@@ -57,13 +57,16 @@ class VLMWhiteBoxPGDAttack:
             Adversarial image tensor
         """
         logger.info("Starting PGD attack execution.")
+        logger.info(f"pixel_values shape: {pixel_values.shape}")
+        
         x_adv = pixel_values.clone().detach()
 
         if self.rand_init:
             logger.info("Applying random initialization to the image tensor.")
             x_adv += torch.empty_like(pixel_values).uniform_(-self.eps, self.eps)
             x_adv = torch.clamp(x_adv, 0, 1)
-
+            
+        logger.info(f"x_adv shape after initialization: {x_adv.shape}")
         x_adv.requires_grad = True
 
         # Wrap the loop with tqdm for a progress bar

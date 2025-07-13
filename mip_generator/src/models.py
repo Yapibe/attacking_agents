@@ -1,6 +1,6 @@
 import torch
 import logging
-from transformers import AutoProcessor, AutoModelForCausalLM, LlavaForConditionalGeneration
+from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
@@ -20,8 +20,8 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
     # --- Load Model ---
     logger.info("Loading model from pretrained...")
     try:
-        # Use AutoModelForCausalLM to handle model type differences automatically
-        model = AutoModelForCausalLM.from_pretrained(
+        # Use the specific LlavaForConditionalGeneration class for compatibility
+        model = LlavaForConditionalGeneration.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
