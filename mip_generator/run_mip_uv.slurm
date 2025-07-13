@@ -12,6 +12,10 @@
 #SBATCH --mem=50G
 
 # --- Setup ---
+# Set the Hugging Face cache directory to the desired shared path
+export HF_HOME=/home/sharifm/teaching/tml-0368-4075/2025-spring/yairp1/
+echo "Hugging Face cache directory set to: $HF_HOME"
+
 # Navigate to the project's execution directory
 # IMPORTANT: This path must be correct for your server environment.
 cd /home/bnet/yairp1/attacking_agents/mip_generator
