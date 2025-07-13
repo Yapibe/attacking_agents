@@ -14,7 +14,7 @@
 # --- Setup ---
 # Navigate to the project's execution directory
 # IMPORTANT: This path must be correct for your server environment.
-cd /home/yair/projects/Agents/attacking_agents/mip_generator
+cd /home/bnet/yairp1/attacking_agents/mip_generator
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
@@ -39,7 +39,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 # Activate the virtual environment
-source $VENV_DIR/bin/activate
+source $VENV_DIR/bin/activate.csh
 echo "Virtual environment activated."
 
 # Install/update dependencies using uv from pyproject.toml

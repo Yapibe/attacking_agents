@@ -52,8 +52,9 @@ This project uses `uv` for fast and efficient environment management.
     ```
 
 2.  **Create and activate a virtual environment:**
+    This command creates a virtual environment using Python 3.10.
     ```bash
-    uv venv
+    uv venv --python 3.10
     source .venv/bin/activate
     ```
     > **Note:** If you are using a `tcsh` shell, you will need to use the `csh` activation script instead:
