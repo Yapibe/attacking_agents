@@ -58,21 +58,17 @@ class VLMWhiteBoxPGDAttack:
             Adversarial image tensor
         """
         logger.info("Starting PGD attack execution.")
-        logger.info(f"pixel_values shape: {pixel_values.shape}")
         x_adv = pixel_values.clone().detach()
 
         if self.rand_init:
             logger.info("Applying random initialization to the image tensor.")
             x_adv += torch.empty_like(pixel_values).uniform_(-self.eps, self.eps)
             x_adv = torch.clamp(x_adv, 0, 1)
-        
-        logger.info(f"x_adv shape after initialization: {x_adv.shape}")
 
         x_adv.requires_grad = True
 
         # Wrap the loop with tqdm for a progress bar
         for i in tqdm(range(self.n), desc="PGD Attack Steps"):
-            # VLM models might need prompt text and image
             outputs = self.model(
                 pixel_values=x_adv, 
                 input_ids=input_ids, 
@@ -107,7 +103,13 @@ class VLMWhiteBoxPGDAttack:
                     target_text = target_text_full.split("ASSISTANT:")[1].strip()
 
                     # Generate from the adversarial image
-                    gen_ids = self.model.generate(pixel_values=x_adv, max_new_tokens=50, image_sizes=image_sizes)
+                    gen_ids = self.model.generate(
+                        pixel_values=x_adv, 
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=50, 
+                        image_sizes=image_sizes
+                    )
                     gen_text = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
                     
                     # The generated text includes the prompt, so we check if our target is in the newly generated part
