@@ -58,8 +58,8 @@ def save_image(tensor: torch.Tensor, output_path: str):
         tensor_to_save = torch.clamp(tensor_to_save, 0, 1)
         
         # Convert tensor to PIL Image
-        # Permute C,H,W to H,W,C, move to CPU, convert to numpy, scale to 0-255
-        image_numpy = (tensor_to_save.permute(1, 2, 0).cpu().numpy() * 255).astype('uint8')
+        # Permute C,H,W to H,W,C, detach from graph, move to CPU, convert to numpy, scale to 0-255
+        image_numpy = (tensor_to_save.permute(1, 2, 0).detach().cpu().numpy() * 255).astype('uint8')
         image = Image.fromarray(image_numpy)
         
         # Save the image

@@ -10,7 +10,7 @@ from src.PGDAttacks import VLMWhiteBoxPGDAttack
 # --- Configuration ---
 # Use the more powerful 13B parameter model
 MODEL_ID = "llava-hf/llava-v1.6-vicuna-13b-hf"
-INPUT_IMAGE_PATH = "data/backgrounds/example_desktop.png"
+INPUT_IMAGE_PATH = "data/backgrounds/example_desktop.jpg"
 # Change the target to a joke
 TARGET_TEXT = "Why did the car get a ticket? Because it was parked in a 'no-joking' zone!"
 OUTPUT_DIR = "outputs/generated_mips"
