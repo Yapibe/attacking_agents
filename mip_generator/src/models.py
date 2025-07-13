@@ -1,6 +1,6 @@
 import torch
 import logging
-from transformers import AutoProcessor, LlavaForConditionalGeneration
+from transformers import AutoProcessor, LlavaNextForConditionalGeneration
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
@@ -13,15 +13,15 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
         model_id (str): The identifier of the model to load.
 
     Returns:
-        (LlavaForConditionalGeneration, AutoProcessor): A tuple containing the loaded model and processor.
+        (LlavaNextForConditionalGeneration, AutoProcessor): A tuple containing the loaded model and processor.
     """
     logger.info(f"Starting model loading for model_id: {model_id}")
     
     # --- Load Model ---
-    logger.info("Loading model from pretrained...")
+    # Use LlavaNextForConditionalGeneration for LLaVA v1.6+ models
+    logger.info("Loading model from pretrained using LlavaNextForConditionalGeneration...")
     try:
-        # Use the specific LlavaForConditionalGeneration class for compatibility
-        model = LlavaForConditionalGeneration.from_pretrained(
+        model = LlavaNextForConditionalGeneration.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
@@ -34,10 +34,7 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
     # --- Load Processor ---
     logger.info("Loading processor from pretrained...")
     try:
-        processor = AutoProcessor.from_pretrained(
-            model_id,
-            use_fast=True
-        )
+        processor = AutoProcessor.from_pretrained(model_id)
         logger.info("Processor loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load processor: {e}")

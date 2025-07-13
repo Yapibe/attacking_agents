@@ -9,6 +9,7 @@ description = "A project to reproduce the research from 'Attacking Multimodal OS
 requires-python = ">=3.10"
 dependencies = [
     "torch",
+    "torchvision",
     "transformers",
     "pillow",
     "accelerate",
