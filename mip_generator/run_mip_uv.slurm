@@ -52,7 +52,7 @@ uv pip install -e .
 export LD_LIBRARY_PATH=/usr/local/cuda-11.8/lib64:$LD_LIBRARY_PATH
 
 # --- Execution ---
-# Run the Python script
+# Run the Python script as a module to ensure correct import paths
 echo "Starting MIP generation..."
-python scripts/generate_mip.py
+python -m scripts.generate_mip
 echo "MIP generation finished."

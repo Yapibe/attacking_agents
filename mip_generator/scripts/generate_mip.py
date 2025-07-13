@@ -1,6 +1,7 @@
 import os
 import torch
 import wandb
+import logging
 from PIL import Image
 from mip_generator.src.models import load_model
 from mip_generator.src.utils import load_image, save_image
@@ -25,32 +26,64 @@ config = {
     "target_text": TARGET_TEXT,
 }
 
+def setup_logging(log_dir="logs"):
+    """Sets up logging to both file and console."""
+    os.makedirs(log_dir, exist_ok=True)
+    log_filename = os.path.join(log_dir, "mip_generation.log")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_filename),
+            logging.StreamHandler()
+        ]
+    )
+    # Suppress overly verbose logs from libraries
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+
+
 def main():
     """
     Main function to generate a malicious image patch.
     """
+    setup_logging()
+    logging.info("--- Starting MIP Generation ---")
+
     # --- 0. Initialize W&B ---
-    run = wandb.init(project="mip-generator-attack", config=config)
-    
+    logging.info("Initializing Weights & Biases...")
+    try:
+        run = wandb.init(project="mip-generator-attack", config=config)
+        logging.info(f"W&B run initialized successfully. Run name: {run.name}")
+    except Exception as e:
+        logging.error(f"Failed to initialize W&B: {e}")
+        # Decide if you want to exit or continue without W&B
+        run = None
+
     # Create output directory if it doesn't exist
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(OUTPUT_DIR, OUTPUT_IMAGE_NAME)
+    logging.info(f"Output directory set to: {output_path}")
 
     # --- 1. Load Model and Processor ---
-    print(f"Loading model: {config['model_id']}...")
+    logging.info(f"Loading model and processor for: {config['model_id']}")
     model, processor = load_model(config['model_id'])
-    print("Model loaded successfully.")
+    logging.info("Model and processor loaded successfully.")
+    device = next(model.parameters()).device
+    logging.info(f"Model loaded on device: {device}")
 
     # --- 2. Load Image ---
-    print(f"Loading input image: {INPUT_IMAGE_PATH}...")
+    logging.info(f"Loading input image from: {INPUT_IMAGE_PATH}")
     image = load_image(INPUT_IMAGE_PATH)
-    print("Image loaded successfully.")
+    logging.info(f"Image loaded successfully. Size: {image.size}")
     
     # Log original image to W&B
-    run.log({"original_image": wandb.Image(image)})
+    if run:
+        run.log({"original_image": wandb.Image(image)})
 
     # --- 3. Prepare Inputs for the Attack ---
-    device = next(model.parameters()).device
+    logging.info("Preparing inputs for the attack...")
     prompt = f"USER: <image>\n{config['target_text']} ASSISTANT:"
     
     inputs = processor(text=prompt, images=image, return_tensors="pt").to(device)
@@ -58,9 +91,10 @@ def main():
     input_ids = inputs['input_ids']
     attention_mask = inputs['attention_mask']
     labels = input_ids.clone()
+    logging.info("Inputs prepared.")
 
     # --- 4. Initialize and Run Attack ---
-    print("Initializing PGD attack...")
+    logging.info("Initializing PGD attack...")
     attack = VLMWhiteBoxPGDAttack(
         model, 
         processor, 
@@ -71,23 +105,30 @@ def main():
         wandb_run=run # Pass the run object
     )
     
-    print("Running attack...")
+    logging.info("Starting PGD attack execution...")
     adversarial_image_tensor = attack.execute(
         pixel_values=pixel_values,
         input_ids=input_ids,
         attention_mask=attention_mask,
         labels=labels
     )
+    logging.info("PGD attack finished.")
 
     # --- 5. Save the Adversarial Image ---
+    logging.info(f"Saving adversarial image to: {output_path}")
     save_image(adversarial_image_tensor, output_path)
+    logging.info("Adversarial image saved successfully.")
     
     # Log the final adversarial image
-    adv_image_pil = Image.open(output_path)
-    run.log({"adversarial_image": wandb.Image(adv_image_pil)})
+    if run:
+        try:
+            adv_image_pil = Image.open(output_path)
+            run.log({"adversarial_image": wandb.Image(adv_image_pil)})
+        except Exception as e:
+            logging.error(f"Could not log adversarial image to W&B: {e}")
 
     # --- 6. Verification (Optional) ---
-    print("\nVerifying the attack...")
+    logging.info("Verifying the attack effectiveness...")
     verify_prompt = f"USER: <image>\nWhat is written in the image? ASSISTANT:"
     verify_inputs = processor(text=verify_prompt, images=adversarial_image_tensor, return_tensors="pt").to(device)
     
@@ -97,11 +138,16 @@ def main():
     generated_text = processor.decode(output[0], skip_special_tokens=True)
     verification_result = generated_text.split("ASSISTANT:")[-1].strip()
     
-    print(f"Model's interpretation of the malicious image: '{verification_result}'")
-    run.log({"verification_output": verification_result})
+    logging.info(f"Verification - Model's output: '{verification_result}'")
+    if run:
+        run.log({"verification_output": verification_result})
     
     # Finish the W&B run
-    run.finish()
+    if run:
+        run.finish()
+        logging.info("W&B run finished.")
+    
+    logging.info("--- MIP Generation Complete ---")
 
 
 if __name__ == "__main__":
@@ -112,3 +158,4 @@ if __name__ == "__main__":
         os.chdir('mip_generator')
 
     main()
+

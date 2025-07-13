@@ -1,5 +1,9 @@
 import torch
 import torch.nn as nn
+import logging
+
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 
 class VLMWhiteBoxPGDAttack:
@@ -31,6 +35,13 @@ class VLMWhiteBoxPGDAttack:
         self.wandb_run = wandb_run
         self.loss_func = nn.CrossEntropyLoss(reduction='mean')  # token-level loss
 
+        logger.info("VLMWhiteBoxPGDAttack initialized.")
+        logger.info(f"  - Epsilon (eps): {self.eps:.4f}")
+        logger.info(f"  - Alpha (step size): {self.alpha:.4f}")
+        logger.info(f"  - Steps (n): {self.n}")
+        logger.info(f"  - Random Init: {self.rand_init}")
+        logger.info(f"  - Early Stopping: {self.early_stop}")
+
     def execute(self, pixel_values, input_ids, attention_mask, labels):
         """
         Performs a targeted PGD attack on an input image.
@@ -44,9 +55,11 @@ class VLMWhiteBoxPGDAttack:
         Returns:
             Adversarial image tensor
         """
+        logger.info("Starting PGD attack execution.")
         x_adv = pixel_values.clone().detach()
 
         if self.rand_init:
+            logger.info("Applying random initialization to the image tensor.")
             x_adv += torch.empty_like(pixel_values).uniform_(-self.eps, self.eps)
             x_adv = torch.clamp(x_adv, 0, 1)
 
@@ -56,6 +69,9 @@ class VLMWhiteBoxPGDAttack:
             # VLM models might need prompt text and image
             outputs = self.model(pixel_values=x_adv, input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
+
+            if i % 10 == 0:
+                logger.info(f"Step [{i}/{self.n}] - Loss: {loss.item():.4f}")
 
             if self.wandb_run:
                 self.wandb_run.log({"step": i, "loss": loss.item()})
@@ -85,11 +101,12 @@ class VLMWhiteBoxPGDAttack:
                     gen_assistant_part = gen_text.split("ASSISTANT:")[-1].strip()
 
                     if target_text in gen_assistant_part:
-                        print(f"\nEarly stopping at step {i}. Target achieved.")
+                        logger.info(f"Early stopping at step {i}. Target achieved.")
                         if self.wandb_run:
                             self.wandb_run.log({"early_stop_step": i})
                         break
-
+        
+        logger.info("PGD attack finished.")
         return x_adv
 
 class VLMBlackBoxPGDAttack:

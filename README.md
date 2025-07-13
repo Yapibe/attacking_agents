@@ -70,10 +70,11 @@ This project uses `uv` for fast and efficient environment management.
 
 ## How to Run
 
-The main entry point for generating a MIP is the `generate_mip.py` script.
+The main entry point for generating a MIP is the `generate_mip.py` script. To ensure Python's import system works correctly, you must run it as a module from the `mip_generator` directory.
 
 ```bash
-python scripts/generate_mip.py
+# From within the mip_generator directory
+python -m scripts.generate_mip
 ```
 
 This will:
