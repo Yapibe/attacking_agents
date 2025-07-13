@@ -1,6 +1,6 @@
 import torch
 import logging
-from transformers import AutoProcessor, LlavaForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForCausalLM, LlavaForConditionalGeneration
 
 # Get a logger for this module
 logger = logging.getLogger(__name__)
@@ -20,7 +20,8 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
     # --- Load Model ---
     logger.info("Loading model from pretrained...")
     try:
-        model = LlavaForConditionalGeneration.from_pretrained(
+        # Use AutoModelForCausalLM to handle model type differences automatically
+        model = AutoModelForCausalLM.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             low_cpu_mem_usage=True,
@@ -33,7 +34,10 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
     # --- Load Processor ---
     logger.info("Loading processor from pretrained...")
     try:
-        processor = AutoProcessor.from_pretrained(model_id)
+        processor = AutoProcessor.from_pretrained(
+            model_id,
+            use_fast=True
+        )
         logger.info("Processor loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load processor: {e}")
