@@ -130,18 +130,29 @@ def main():
 
     # --- 6. Verification (Optional) ---
     logging.info("Verifying the attack effectiveness...")
-    verify_prompt = f"USER: <image>\nWhat is written in the image? ASSISTANT:"
-    verify_inputs = processor(text=verify_prompt, images=adversarial_image_tensor, return_tensors="pt").to(device)
-    
-    with torch.no_grad():
-        output = model.generate(**verify_inputs, max_new_tokens=100)
-    
-    generated_text = processor.decode(output[0], skip_special_tokens=True)
-    verification_result = generated_text.split("ASSISTANT:")[-1].strip()
-    
-    logging.info(f"Verification - Model's output: '{verification_result}'")
-    if run:
-        run.log({"verification_output": verification_result})
+    # Load the saved adversarial image for a true verification
+    try:
+        adv_image_pil_for_verify = Image.open(output_path)
+        logging.info("Successfully loaded saved adversarial image for verification.")
+    except Exception as e:
+        logging.error(f"Could not load the saved image for verification: {e}")
+        # Skip verification if the image can't be loaded
+        adv_image_pil_for_verify = None
+
+    if adv_image_pil_for_verify:
+        verify_prompt = f"USER: <image>\nWhat is written in the image? ASSISTANT:"
+        # Process the PIL image, not the tensor
+        verify_inputs = processor(text=verify_prompt, images=adv_image_pil_for_verify, return_tensors="pt").to(device)
+        
+        with torch.no_grad():
+            output = model.generate(**verify_inputs, max_new_tokens=100)
+        
+        generated_text = processor.decode(output[0], skip_special_tokens=True)
+        verification_result = generated_text.split("ASSISTANT:")[-1].strip()
+        
+        logging.info(f"Verification - Model's output: '{verification_result}'")
+        if run:
+            run.log({"verification_output": verification_result})
     
     # Finish the W&B run
     if run:
