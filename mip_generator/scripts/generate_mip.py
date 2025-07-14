@@ -86,26 +86,33 @@ def main():
     # The goal is to make the model output TARGET_TEXT when given USER_PROMPT.
     logging.info("Preparing inputs for the attack...")
     
-    # The 'prompt' is the query we are hijacking.
-    attack_prompt = f"USER: <image>\n{config['user_prompt']} ASSISTANT:"
-    
-    # The 'labels' should contain the malicious text we want to force.
-    # The model's loss is calculated against these labels.
-    target_conversation = f"USER: <image>\n{config['user_prompt']} ASSISTANT: {config['target_text']}"
+    # The prompt is the query we are hijacking.
+    prompt_text = f"USER: <image>\n{config['user_prompt']} ASSISTANT:"
+    # The target conversation includes the malicious output.
+    target_conversation = f"{prompt_text} {config['target_text']}"
 
-    # The processor prepares the inputs for the model.
-    inputs = processor(text=attack_prompt, images=image, return_tensors="pt").to(device)
-    pixel_values = inputs['pixel_values']
+    # Process the full conversation to get the combined text and image inputs.
+    inputs = processor(text=target_conversation, images=image, return_tensors="pt").to(device)
     input_ids = inputs['input_ids']
     attention_mask = inputs['attention_mask']
+    pixel_values = inputs['pixel_values']
     image_sizes = inputs.get('image_sizes')
 
-    # Prepare the labels for the loss function.
-    # We tokenize the full target conversation. The model's internal logic
-    # should only compute loss on the assistant's part.
-    labels = processor(text=target_conversation, return_tensors="pt").input_ids.to(device)
+    # Create labels by cloning the input_ids. They must have the same shape.
+    labels = input_ids.clone()
+
+    # Find the length of the prompt to mask it in the labels.
+    # We process the prompt *without* the image to get its tokenized length.
+    # This is a bit of a simplification, but should be accurate enough.
+    # A more robust solution would find the token subsequence.
+    prompt_inputs = processor(text=prompt_text, return_tensors="pt")
+    prompt_length = prompt_inputs['input_ids'].shape[1]
+
+    # Mask the prompt part of the labels by setting them to -100.
+    # This means the loss will only be calculated on the target text.
+    labels[:, :prompt_length] = -100
     
-    logging.info("Inputs prepared for attack.")
+    logging.info("Inputs prepared for attack. Label masking applied.")
 
     # --- 4. Initialize and Run Attack ---
     logging.info("Initializing PGD attack...")
