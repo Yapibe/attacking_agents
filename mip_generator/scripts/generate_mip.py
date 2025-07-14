@@ -18,7 +18,7 @@ TARGET_TEXT = "Why did the car get a ticket? Because it was parked in a 'no-joki
 # The default system prompt for the Vicuna model
 SYSTEM_PROMPT = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."
 OUTPUT_DIR = "outputs/generated_mips"
-OUTPUT_IMAGE_NAME = "joke_attack_desktop_llava_system_prompt.png" # Updated name
+OUTPUT_IMAGE_NAME = "joke_attack_desktop_llava_EXTREME.png" # Updated name
 
 # Attack parameters
 config = {
@@ -26,9 +26,9 @@ config = {
     "system_prompt": SYSTEM_PROMPT,
     "user_prompt": USER_PROMPT,
     "target_text": TARGET_TEXT,
-    "eps": 16 / 255,
-    "alpha": 1 / 255,
-    "steps": 250,
+    "eps": 128 / 255,  # EXTREME
+    "alpha": 4 / 255,    # EXTREME
+    "steps": 1000,       # EXTREME
 }
 
 def setup_logging(log_dir="logs"):
