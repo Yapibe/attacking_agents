@@ -40,6 +40,23 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
         logger.error(f"Failed to load processor: {e}")
         raise
 
+    # --- Set Chat Template ---
+    # The Vicuna-based model needs a chat template to be explicitly set.
+    # This defines how the conversation is formatted.
+    vicuna_template = (
+        "{% for message in messages %}"
+        "  {% if message['role'] == 'system' %}"
+        "    {{ message['content'] + '\n' }}"
+        "  {% elif message['role'] == 'user' %}"
+        "    {{ 'USER: ' + message['content'] + '\n' }}"
+        "  {% elif message['role'] == 'assistant' %}"
+        "    {{ 'ASSISTANT: ' + message['content'] + eos_token + '\n' }}"
+        "  {% endif %}"
+        "{% endfor %}"
+    )
+    processor.tokenizer.chat_template = vicuna_template
+    logger.info("Vicuna chat template has been set on the tokenizer.")
+
     # --- Move to GPU ---
     if torch.cuda.is_available():
         logger.info("CUDA is available. Moving model to GPU...")
