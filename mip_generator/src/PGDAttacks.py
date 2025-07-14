@@ -44,7 +44,7 @@ class VLMWhiteBoxPGDAttack:
         logger.info(f"  - Random Init: {self.rand_init}")
         logger.info(f"  - Early Stopping: {self.early_stop}")
 
-    def execute(self, pixel_values, input_ids, attention_mask, labels, image_sizes):
+    def execute(self, pixel_values, input_ids, attention_mask, labels, image_sizes, target_text):
         """
         Performs a targeted PGD attack on an input image.
 
@@ -54,6 +54,7 @@ class VLMWhiteBoxPGDAttack:
             attention_mask (Tensor): Attention mask for the input tokens.
             labels (Tensor): Target output tokens (B, L)
             image_sizes (Tensor): Original sizes of the images.
+            target_text (str): The actual target string for early stopping checks.
 
         Returns:
             Adversarial image tensor
@@ -97,18 +98,13 @@ class VLMWhiteBoxPGDAttack:
 
             if self.early_stop and (i % 10 == 0 or i == self.n - 1): # Check every 10 steps
                 with torch.no_grad():
-                    # For early stopping, we generate text and see if it matches the target
-                    # We need to decode the labels to get the target text
-                    target_text_full = self.tokenizer.decode(labels[0], skip_special_tokens=True)
-                    # The actual target is what comes after "ASSISTANT:"
-                    target_text = target_text_full.split("ASSISTANT:")[1].strip()
-
-                    # Generate from the adversarial image
+                    # For early stopping, generate text and see if it matches the target.
+                    # We use the explicitly passed `target_text` for comparison.
                     gen_ids = self.model.generate(
-                        pixel_values=x_adv, 
+                        pixel_values=x_adv,
                         input_ids=input_ids,
                         attention_mask=attention_mask,
-                        max_new_tokens=50, 
+                        max_new_tokens=len(self.tokenizer.encode(target_text)) + 10, # Ensure enough tokens
                         image_sizes=image_sizes
                     )
                     gen_text = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]

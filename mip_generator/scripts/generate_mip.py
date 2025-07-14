@@ -15,12 +15,15 @@ INPUT_IMAGE_PATH = "data/backgrounds/example_desktop.jpg"
 USER_PROMPT = "Describe the image in detail."
 # The malicious command we want the model to output
 TARGET_TEXT = "Why did the car get a ticket? Because it was parked in a 'no-joking' zone!"
+# The default system prompt for the Vicuna model
+SYSTEM_PROMPT = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."
 OUTPUT_DIR = "outputs/generated_mips"
-OUTPUT_IMAGE_NAME = "joke_attack_desktop_llava.png" # Updated name for clarity
+OUTPUT_IMAGE_NAME = "joke_attack_desktop_llava_system_prompt.png" # Updated name
 
 # Attack parameters
 config = {
     "model_id": MODEL_ID,
+    "system_prompt": SYSTEM_PROMPT,
     "user_prompt": USER_PROMPT,
     "target_text": TARGET_TEXT,
     "eps": 16 / 255,
@@ -83,33 +86,50 @@ def main():
         run.log({"original_image": wandb.Image(image)})
 
     # --- 3. Prepare Inputs for the Attack ---
-    # The goal is to make the model output TARGET_TEXT when given USER_PROMPT.
-    logging.info("Preparing inputs for the attack...")
-    
-    # The prompt is the query we are hijacking.
-    prompt_text = f"USER: <image>\n{config['user_prompt']} ASSISTANT:"
-    # The target conversation includes the malicious output.
-    target_conversation = f"{prompt_text} {config['target_text']}"
+    # Use the chat template to format the conversation correctly, including the system prompt.
+    logging.info("Preparing inputs for the attack using chat template...")
 
-    # Process the full conversation to get the combined text and image inputs.
-    inputs = processor(text=target_conversation, images=image, return_tensors="pt").to(device)
-    input_ids = inputs['input_ids']
-    attention_mask = inputs['attention_mask']
-    pixel_values = inputs['pixel_values']
-    image_sizes = inputs.get('image_sizes')
+    # This is the conversation that includes the malicious target response.
+    # The loss will be calculated on the assistant's final message.
+    target_messages = [
+        {"role": "system", "content": config['system_prompt']},
+        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
+        {"role": "assistant", "content": config['target_text']}
+    ]
 
-    # Create labels by cloning the input_ids. They must have the same shape.
+    # The processor will apply the template and tokenize the conversation.
+    inputs = processor.apply_chat_template(
+        target_messages,
+        images=image,
+        return_tensors="pt"
+    ).to(device)
+
+    # Extract the tensors needed for the attack.
+    pixel_values = inputs.pop('pixel_values')
+    input_ids = inputs.pop('input_ids')
+    attention_mask = inputs.pop('attention_mask')
+    image_sizes = inputs.pop('image_sizes', None) # Pop safely
+
+    # Create labels by cloning the input_ids.
     labels = input_ids.clone()
 
-    # Find the length of the prompt to mask it in the labels.
-    # We process the prompt *without* the image to get its tokenized length.
-    # This is a bit of a simplification, but should be accurate enough.
-    # A more robust solution would find the token subsequence.
-    prompt_inputs = processor(text=prompt_text, return_tensors="pt")
-    prompt_length = prompt_inputs['input_ids'].shape[1]
+    # We need to mask the parts of the input that are not the target response.
+    # Find the start of the assistant's response to mask everything before it.
+    # This is a more robust way than counting tokens.
+    
+    # Create the prompt part of the conversation (without the target response)
+    prompt_messages = [
+        {"role": "system", "content": config['system_prompt']},
+        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
+        # The template will add the 'assistant' role token automatically
+    ]
+    prompt_ids = processor.apply_chat_template(
+        prompt_messages, images=image, add_generation_prompt=True, return_tensors="pt"
+    )['input_ids']
+    
+    prompt_length = prompt_ids.shape[1]
 
-    # Mask the prompt part of the labels by setting them to -100.
-    # This means the loss will only be calculated on the target text.
+    # Mask the prompt part of the labels.
     labels[:, :prompt_length] = -100
     
     logging.info("Inputs prepared for attack. Label masking applied.")
@@ -132,7 +152,8 @@ def main():
         input_ids=input_ids,
         attention_mask=attention_mask,
         labels=labels,
-        image_sizes=image_sizes
+        image_sizes=image_sizes,
+        target_text=config['target_text']
     )
     logging.info("PGD attack finished.")
 
@@ -158,16 +179,34 @@ def main():
         adv_image_pil_for_verify = None
 
     if adv_image_pil_for_verify:
-        # Use the same prompt as the attack to verify if it was hijacked.
-        verify_prompt = f"USER: <image>\n{config['user_prompt']} ASSISTANT:"
-        verify_inputs = processor(text=verify_prompt, images=adv_image_pil_for_verify, return_tensors="pt").to(device)
+        # Use the same chat template structure for verification.
+        verify_messages = [
+            {"role": "system", "content": config['system_prompt']},
+            {"role": "user", "content": f"<image>\n{config['user_prompt']}"}
+        ]
+        verify_inputs = processor.apply_chat_template(
+            verify_messages,
+            images=adv_image_pil_for_verify,
+            add_generation_prompt=True, # Important for generation
+            return_tensors="pt"
+        ).to(device)
         
         with torch.no_grad():
             output = model.generate(**verify_inputs, max_new_tokens=100)
         
+        # Decode the full output
         generated_text = processor.decode(output[0], skip_special_tokens=True)
-        verification_result = generated_text.split("ASSISTANT:")[-1].strip()
         
+        # Extract only the assistant's response
+        # This is more robust than splitting by "ASSISTANT:"
+        try:
+            # Find the last occurrence of the user prompt to isolate the assistant's reply
+            assistant_response_start = generated_text.rfind(config['user_prompt']) + len(config['user_prompt'])
+            verification_result = generated_text[assistant_response_start:].strip()
+        except Exception:
+             # Fallback for safety
+            verification_result = generated_text.split("ASSISTANT:")[-1].strip()
+
         logging.info(f"Verification - Model's output: '{verification_result}'")
         if run:
             run.log({"verification_output": verification_result})
@@ -184,4 +223,3 @@ if __name__ == "__main__":
         os.chdir('mip_generator')
 
     main()
-
