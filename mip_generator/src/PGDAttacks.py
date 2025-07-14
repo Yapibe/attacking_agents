@@ -13,7 +13,7 @@ class VLMWhiteBoxPGDAttack:
     Targeted attack: tries to force the model to generate the desired output sequence for an image.
     """
 
-    def __init__(self, model, processor, eps=8 / 255., n=50, alpha=1 / 255.,
+    def __init__(self, model, processor, eps=8 / 255., n=50, alpha=1e-2,
                  rand_init=True, early_stop=True, wandb_run=None):
         """
         Parameters:
@@ -21,7 +21,7 @@ class VLMWhiteBoxPGDAttack:
         - processor: The processor object from Hugging Face, which includes the tokenizer.
         - eps: maximum perturbation
         - n: number of PGD steps
-        - alpha: step size
+        - alpha: learning rate for Adam optimizer
         - rand_init: whether to randomly initialize image
         - early_stop: stop if target sequence is already achieved
         - wandb_run: optional wandb run object for logging
@@ -39,7 +39,7 @@ class VLMWhiteBoxPGDAttack:
 
         logger.info("VLMWhiteBoxPGDAttack initialized.")
         logger.info(f"  - Epsilon (eps): {self.eps:.4f}")
-        logger.info(f"  - Alpha (step size): {self.alpha:.4f}")
+        logger.info(f"  - Alpha (learning rate): {self.alpha:.4f}")
         logger.info(f"  - Steps (n): {self.n}")
         logger.info(f"  - Random Init: {self.rand_init}")
         logger.info(f"  - Early Stopping: {self.early_stop}")
@@ -69,16 +69,21 @@ class VLMWhiteBoxPGDAttack:
             logger.info("Applying random initialization to the image tensor.")
             x_adv += torch.empty_like(pixel_values).uniform_(-self.eps, self.eps)
             x_adv = torch.clamp(x_adv, 0, 1)
+            x_adv = torch.round(x_adv * 255) / 255
 
         x_adv.requires_grad = True
 
+        optimizer = torch.optim.Adam([x_adv], lr=self.alpha, betas=(0.9, 0.9))
+
+        target_ids = labels[0, labels[0] != -100]
+
         # Wrap the loop with tqdm for a progress bar
         for i in tqdm(range(self.n), desc="PGD Attack Steps"):
-            # Use the inputs designed for loss calculation
+            optimizer.zero_grad()
             outputs = self.model(
-                pixel_values=x_adv, 
-                input_ids=input_ids_for_loss, 
-                attention_mask=attention_mask_for_loss, 
+                pixel_values=x_adv,
+                input_ids=input_ids_for_loss,
+                attention_mask=attention_mask_for_loss,
                 labels=labels,
                 image_sizes=image_sizes
             )
@@ -89,29 +94,39 @@ class VLMWhiteBoxPGDAttack:
 
             if self.wandb_run:
                 self.wandb_run.log({"step": i, "loss": loss.item()})
-            
-            grad = torch.autograd.grad(loss, x_adv, only_inputs=True)[0]
-            x_adv = x_adv - self.alpha * torch.sign(grad)
-            x_adv = torch.min(torch.max(x_adv, pixel_values - self.eps), pixel_values + self.eps)
-            x_adv = torch.clamp(x_adv, 0, 1).detach()
+
+            loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                delta = torch.clamp(x_adv - pixel_values, -self.eps, self.eps)
+                x_adv.data = pixel_values + delta
+                x_adv.data = torch.clamp(x_adv.data, 0, 1)
+                x_adv.data = torch.round(x_adv.data * 255) / 255
             x_adv.requires_grad = True
 
             if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
-                    # Use the inputs designed for generation (prompt only)
-                    gen_ids = self.model.generate(
-                        pixel_values=x_adv,
-                        input_ids=input_ids_for_gen,
-                        attention_mask=attention_mask_for_gen,
-                        max_new_tokens=len(self.tokenizer.encode(target_text)) + 20,
-                        image_sizes=image_sizes
-                    )
-                    gen_text = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
-                    
-                    gen_assistant_part = gen_text.split("ASSISTANT:")[-1].strip()
+                    seq_ids = input_ids_for_gen.clone()
+                    seq_mask = attention_mask_for_gen.clone()
+                    all_pass = True
+                    for j, t_id in enumerate(target_ids):
+                        out = self.model(
+                            pixel_values=x_adv,
+                            input_ids=seq_ids,
+                            attention_mask=seq_mask,
+                            image_sizes=image_sizes
+                        )
+                        last_logits = out.logits[0, -1]
+                        prob = torch.softmax(last_logits, dim=-1)[t_id]
+                        if prob <= 0.99:
+                            all_pass = False
+                            break
+                        seq_ids = torch.cat([seq_ids, t_id.view(1, 1)], dim=1)
+                        seq_mask = torch.cat([seq_mask, torch.ones_like(t_id.view(1, 1))], dim=1)
 
-                    if target_text in gen_assistant_part:
-                        logger.info(f"Early stopping at step {i}. Target achieved.")
+                    if all_pass:
+                        logger.info(f"Early stopping at step {i}. Target probability achieved.")
                         if self.wandb_run:
                             self.wandb_run.log({"early_stop_step": i})
                         break
