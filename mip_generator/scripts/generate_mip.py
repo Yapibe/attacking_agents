@@ -10,7 +10,7 @@ from src.PGDAttacks import VLMWhiteBoxPGDAttack
 # --- Configuration ---
 # Use the existing Llava model for now
 MODEL_ID = "llava-hf/llava-v1.6-vicuna-13b-hf"
-INPUT_IMAGE_PATH = "data/backgrounds/example_desktop.jpg"
+INPUT_IMAGE_PATH = "data/backgrounds/example_grey.png"
 # The prompt we want to hijack
 USER_PROMPT = "Describe the image in detail."
 # The malicious command we want the model to output
