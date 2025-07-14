@@ -75,8 +75,8 @@ class VLMWhiteBoxPGDAttack:
 
         optimizer = torch.optim.Adam([x_adv], lr=self.alpha, betas=(0.9, 0.9))
 
-        target_pos = (labels[0] != -100).nonzero(as_tuple=True)[0]
-        target_ids = labels[0, target_pos]
+
+        target_ids = labels[0, labels[0] != -100]
 
         # Wrap the loop with tqdm for a progress bar
         for i in tqdm(range(self.n), desc="PGD Attack Steps"):
@@ -108,16 +108,27 @@ class VLMWhiteBoxPGDAttack:
 
             if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
-                    check_out = self.model(
-                        pixel_values=x_adv,
-                        input_ids=input_ids_for_loss,
-                        attention_mask=attention_mask_for_loss,
-                        image_sizes=image_sizes
-                    )
-                    logits = check_out.logits
-                    probs = torch.softmax(logits[0, target_pos], dim=-1)
-                    chosen = probs[range(len(target_pos)), target_ids]
-                    if torch.all(chosen > 0.99):
+
+                    seq_ids = input_ids_for_gen.clone()
+                    seq_mask = attention_mask_for_gen.clone()
+                    all_pass = True
+                    for j, t_id in enumerate(target_ids):
+                        out = self.model(
+                            pixel_values=x_adv,
+                            input_ids=seq_ids,
+                            attention_mask=seq_mask,
+                            image_sizes=image_sizes
+                        )
+                        last_logits = out.logits[0, -1]
+                        prob = torch.softmax(last_logits, dim=-1)[t_id]
+                        if prob <= 0.99:
+                            all_pass = False
+                            break
+                        seq_ids = torch.cat([seq_ids, t_id.view(1, 1)], dim=1)
+                        seq_mask = torch.cat([seq_mask, torch.ones_like(t_id.view(1, 1))], dim=1)
+
+                    if all_pass:
+
                         logger.info(f"Early stopping at step {i}. Target probability achieved.")
                         if self.wandb_run:
                             self.wandb_run.log({"early_stop_step": i})
