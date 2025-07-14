@@ -13,12 +13,12 @@ class VLMWhiteBoxPGDAttack:
     Targeted attack: tries to force the model to generate the desired output sequence for an image.
     """
 
-    def __init__(self, model, tokenizer, eps=8 / 255., n=50, alpha=1 / 255.,
+    def __init__(self, model, processor, eps=8 / 255., n=50, alpha=1 / 255.,
                  rand_init=True, early_stop=True, wandb_run=None):
         """
         Parameters:
         - model: VLM agent model with image + text input, outputs logits or token sequences
-        - tokenizer: Tokenizer used by the VLM (e.g., T5Tokenizer, CLIPTokenizer)
+        - processor: The processor object from Hugging Face, which includes the tokenizer.
         - eps: maximum perturbation
         - n: number of PGD steps
         - alpha: step size
@@ -27,7 +27,8 @@ class VLMWhiteBoxPGDAttack:
         - wandb_run: optional wandb run object for logging
         """
         self.model = model
-        self.tokenizer = tokenizer
+        self.processor = processor
+        self.tokenizer = processor.tokenizer # Explicitly get the tokenizer
         self.n = n
         self.alpha = alpha
         self.eps = eps
