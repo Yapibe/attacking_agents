@@ -75,6 +75,7 @@ class VLMWhiteBoxPGDAttack:
 
         optimizer = torch.optim.Adam([x_adv], lr=self.alpha, betas=(0.9, 0.9))
 
+
         target_ids = labels[0, labels[0] != -100]
 
         # Wrap the loop with tqdm for a progress bar
@@ -107,6 +108,7 @@ class VLMWhiteBoxPGDAttack:
 
             if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
+
                     seq_ids = input_ids_for_gen.clone()
                     seq_mask = attention_mask_for_gen.clone()
                     all_pass = True
@@ -126,6 +128,7 @@ class VLMWhiteBoxPGDAttack:
                         seq_mask = torch.cat([seq_mask, torch.ones_like(t_id.view(1, 1))], dim=1)
 
                     if all_pass:
+
                         logger.info(f"Early stopping at step {i}. Target probability achieved.")
                         if self.wandb_run:
                             self.wandb_run.log({"early_stop_step": i})
