@@ -89,50 +89,45 @@ def main():
     # Use the chat template to format the conversation correctly, including the system prompt.
     logging.info("Preparing inputs for the attack using chat template...")
 
-    # This is the conversation that includes the malicious target response.
+    # A. Prepare inputs for LOSS CALCULATION (includes the target text)
     target_messages = [
         {"role": "system", "content": config['system_prompt']},
         {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
         {"role": "assistant", "content": config['target_text']}
     ]
-
-    # First, format the conversation into a single string using the tokenizer's chat template.
-    # The tokenizer handles the roles and special tokens.
-    formatted_prompt = processor.tokenizer.apply_chat_template(
-        target_messages,
-        tokenize=False,
-        add_generation_prompt=False
+    formatted_target_prompt = processor.tokenizer.apply_chat_template(
+        target_messages, tokenize=False, add_generation_prompt=False
     )
-
-    # Now, process the formatted text and the image together.
-    # This correctly combines the text tokens with the image patch tokens.
-    inputs = processor(
-        text=formatted_prompt,
-        images=image,
-        return_tensors="pt"
+    inputs_for_loss = processor(
+        text=formatted_target_prompt, images=image, return_tensors="pt"
     ).to(device)
+    
+    pixel_values = inputs_for_loss['pixel_values']
+    input_ids_for_loss = inputs_for_loss['input_ids']
+    attention_mask_for_loss = inputs_for_loss['attention_mask']
+    image_sizes = inputs_for_loss.get('image_sizes')
 
-    # Extract the tensors needed for the attack.
-    pixel_values = inputs['pixel_values']
-    input_ids = inputs['input_ids']
-    attention_mask = inputs['attention_mask']
-    image_sizes = inputs.get('image_sizes')
-
-    # Create labels by cloning the input_ids.
-    labels = input_ids.clone()
-
-    # To create the mask, we find the length of the target text when tokenized.
+    # Create labels by cloning the loss input_ids and masking the prompt.
+    labels = input_ids_for_loss.clone()
     target_ids = processor.tokenizer(config['target_text'], add_special_tokens=False).input_ids
-    target_length = len(target_ids)
-
-    # The prompt length is the total length minus the target length.
-    prompt_length = labels.shape[1] - target_length
-
-    # Mask the prompt part of the labels by setting them to -100.
-    # The loss will only be calculated on the target text tokens.
+    prompt_length = labels.shape[1] - len(target_ids)
     labels[:, :prompt_length] = -100
     
-    logging.info("Inputs prepared for attack. Label masking applied.")
+    # B. Prepare inputs for EARLY STOPPING CHECK (does NOT include the target text)
+    prompt_only_messages = [
+        {"role": "system", "content": config['system_prompt']},
+        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
+    ]
+    formatted_prompt_only = processor.tokenizer.apply_chat_template(
+        prompt_only_messages, tokenize=False, add_generation_prompt=True
+    )
+    inputs_for_gen = processor(
+        text=formatted_prompt_only, images=image, return_tensors="pt"
+    ).to(device)
+    input_ids_for_gen = inputs_for_gen['input_ids']
+    attention_mask_for_gen = inputs_for_gen['attention_mask']
+
+    logging.info("Inputs for loss calculation and early stopping have been prepared.")
 
     # --- 4. Initialize and Run Attack ---
     logging.info("Initializing PGD attack...")
@@ -149,8 +144,10 @@ def main():
     logging.info("Starting PGD attack execution...")
     adversarial_image_tensor = attack.execute(
         pixel_values=pixel_values,
-        input_ids=input_ids,
-        attention_mask=attention_mask,
+        input_ids_for_loss=input_ids_for_loss,
+        attention_mask_for_loss=attention_mask_for_loss,
+        input_ids_for_gen=input_ids_for_gen,
+        attention_mask_for_gen=attention_mask_for_gen,
         labels=labels,
         image_sizes=image_sizes,
         target_text=config['target_text']

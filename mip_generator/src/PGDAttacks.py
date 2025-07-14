@@ -44,17 +44,20 @@ class VLMWhiteBoxPGDAttack:
         logger.info(f"  - Random Init: {self.rand_init}")
         logger.info(f"  - Early Stopping: {self.early_stop}")
 
-    def execute(self, pixel_values, input_ids, attention_mask, labels, image_sizes, target_text):
+    def execute(self, pixel_values, input_ids_for_loss, attention_mask_for_loss,
+                input_ids_for_gen, attention_mask_for_gen, labels, image_sizes, target_text):
         """
         Performs a targeted PGD attack on an input image.
 
         Args:
-            pixel_values (Tensor): Input image tensor, shape (B, C, H, W), values in [0,1]
-            input_ids (Tensor): Input token ids.
-            attention_mask (Tensor): Attention mask for the input tokens.
-            labels (Tensor): Target output tokens (B, L)
+            pixel_values (Tensor): Input image tensor.
+            input_ids_for_loss (Tensor): Token IDs for loss calculation (includes target).
+            attention_mask_for_loss (Tensor): Attention mask for loss calculation.
+            input_ids_for_gen (Tensor): Token IDs for generation check (prompt only).
+            attention_mask_for_gen (Tensor): Attention mask for generation check.
+            labels (Tensor): Target output tokens with masking.
             image_sizes (Tensor): Original sizes of the images.
-            target_text (str): The actual target string for early stopping checks.
+            target_text (str): The target string for early stopping.
 
         Returns:
             Adversarial image tensor
@@ -71,45 +74,40 @@ class VLMWhiteBoxPGDAttack:
 
         # Wrap the loop with tqdm for a progress bar
         for i in tqdm(range(self.n), desc="PGD Attack Steps"):
+            # Use the inputs designed for loss calculation
             outputs = self.model(
                 pixel_values=x_adv, 
-                input_ids=input_ids, 
-                attention_mask=attention_mask, 
+                input_ids=input_ids_for_loss, 
+                attention_mask=attention_mask_for_loss, 
                 labels=labels,
                 image_sizes=image_sizes
             )
             loss = outputs.loss
 
             if i % 10 == 0:
-                # This logging is still useful for file logs
                 logger.info(f"Step [{i}/{self.n}] - Loss: {loss.item():.4f}")
 
             if self.wandb_run:
                 self.wandb_run.log({"step": i, "loss": loss.item()})
             
-            # We want to maximize the probability of the target tokens, so we minimize the negative loss
-            # The model already returns the loss for the labels, so we can just use it.
-
             grad = torch.autograd.grad(loss, x_adv, only_inputs=True)[0]
-            x_adv = x_adv - self.alpha * torch.sign(grad) # Use - because we want to minimize the loss
+            x_adv = x_adv - self.alpha * torch.sign(grad)
             x_adv = torch.min(torch.max(x_adv, pixel_values - self.eps), pixel_values + self.eps)
             x_adv = torch.clamp(x_adv, 0, 1).detach()
             x_adv.requires_grad = True
 
-            if self.early_stop and (i % 10 == 0 or i == self.n - 1): # Check every 10 steps
+            if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
-                    # For early stopping, generate text and see if it matches the target.
-                    # We use the explicitly passed `target_text` for comparison.
+                    # Use the inputs designed for generation (prompt only)
                     gen_ids = self.model.generate(
                         pixel_values=x_adv,
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        max_new_tokens=len(self.tokenizer.encode(target_text)) + 10, # Ensure enough tokens
+                        input_ids=input_ids_for_gen,
+                        attention_mask=attention_mask_for_gen,
+                        max_new_tokens=len(self.tokenizer.encode(target_text)) + 20,
                         image_sizes=image_sizes
                     )
                     gen_text = self.tokenizer.batch_decode(gen_ids, skip_special_tokens=True)[0]
                     
-                    # The generated text includes the prompt, so we check if our target is in the newly generated part
                     gen_assistant_part = gen_text.split("ASSISTANT:")[-1].strip()
 
                     if target_text in gen_assistant_part:
