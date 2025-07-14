@@ -14,11 +14,11 @@ INPUT_IMAGE_PATH = "data/backgrounds/example_desktop.jpg"
 # The prompt we want to hijack
 USER_PROMPT = "Describe the image in detail."
 # The malicious command we want the model to output
-TARGET_TEXT = "Why did the car get a ticket? Because it was parked in a 'no-joking' zone!"
+TARGET_TEXT = "There are five folders on the desktop."
 # The default system prompt for the Vicuna model
 SYSTEM_PROMPT = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."
 OUTPUT_DIR = "outputs/generated_mips"
-OUTPUT_IMAGE_NAME = "joke_attack_desktop_llava_EXTREME.png" # Updated name
+OUTPUT_IMAGE_NAME = "folder_attack.png" # Updated name
 
 # Attack parameters
 config = {
