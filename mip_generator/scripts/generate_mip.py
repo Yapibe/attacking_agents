@@ -27,7 +27,7 @@ config = {
     "user_prompt": USER_PROMPT,
     "target_text": TARGET_TEXT,
     "eps": 128 / 255,  # EXTREME
-    "alpha": 4 / 255,    # EXTREME
+    "alpha": 1e-2,
     "steps": 1000,       # EXTREME
 }
 
