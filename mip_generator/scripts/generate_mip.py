@@ -90,46 +90,46 @@ def main():
     logging.info("Preparing inputs for the attack using chat template...")
 
     # This is the conversation that includes the malicious target response.
-    # The loss will be calculated on the assistant's final message.
     target_messages = [
         {"role": "system", "content": config['system_prompt']},
         {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
         {"role": "assistant", "content": config['target_text']}
     ]
 
-    # The processor will apply the template and tokenize the conversation.
-    inputs = processor.apply_chat_template(
+    # First, format the conversation into a single string using the tokenizer's chat template.
+    # The tokenizer handles the roles and special tokens.
+    formatted_prompt = processor.tokenizer.apply_chat_template(
         target_messages,
+        tokenize=False,
+        add_generation_prompt=False
+    )
+
+    # Now, process the formatted text and the image together.
+    # This correctly combines the text tokens with the image patch tokens.
+    inputs = processor(
+        text=formatted_prompt,
         images=image,
         return_tensors="pt"
     ).to(device)
 
     # Extract the tensors needed for the attack.
-    pixel_values = inputs.pop('pixel_values')
-    input_ids = inputs.pop('input_ids')
-    attention_mask = inputs.pop('attention_mask')
-    image_sizes = inputs.pop('image_sizes', None) # Pop safely
+    pixel_values = inputs['pixel_values']
+    input_ids = inputs['input_ids']
+    attention_mask = inputs['attention_mask']
+    image_sizes = inputs.get('image_sizes')
 
     # Create labels by cloning the input_ids.
     labels = input_ids.clone()
 
-    # We need to mask the parts of the input that are not the target response.
-    # Find the start of the assistant's response to mask everything before it.
-    # This is a more robust way than counting tokens.
-    
-    # Create the prompt part of the conversation (without the target response)
-    prompt_messages = [
-        {"role": "system", "content": config['system_prompt']},
-        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
-        # The template will add the 'assistant' role token automatically
-    ]
-    prompt_ids = processor.apply_chat_template(
-        prompt_messages, images=image, add_generation_prompt=True, return_tensors="pt"
-    )['input_ids']
-    
-    prompt_length = prompt_ids.shape[1]
+    # To create the mask, we find the length of the target text when tokenized.
+    target_ids = processor.tokenizer(config['target_text'], add_special_tokens=False).input_ids
+    target_length = len(target_ids)
 
-    # Mask the prompt part of the labels.
+    # The prompt length is the total length minus the target length.
+    prompt_length = labels.shape[1] - target_length
+
+    # Mask the prompt part of the labels by setting them to -100.
+    # The loss will only be calculated on the target text tokens.
     labels[:, :prompt_length] = -100
     
     logging.info("Inputs prepared for attack. Label masking applied.")
@@ -184,10 +184,18 @@ def main():
             {"role": "system", "content": config['system_prompt']},
             {"role": "user", "content": f"<image>\n{config['user_prompt']}"}
         ]
-        verify_inputs = processor.apply_chat_template(
+        
+        # Format the prompt string
+        formatted_verify_prompt = processor.tokenizer.apply_chat_template(
             verify_messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        # Process the text and image
+        verify_inputs = processor(
+            text=formatted_verify_prompt,
             images=adv_image_pil_for_verify,
-            add_generation_prompt=True, # Important for generation
             return_tensors="pt"
         ).to(device)
         
@@ -198,7 +206,6 @@ def main():
         generated_text = processor.decode(output[0], skip_special_tokens=True)
         
         # Extract only the assistant's response
-        # This is more robust than splitting by "ASSISTANT:"
         try:
             # Find the last occurrence of the user prompt to isolate the assistant's reply
             assistant_response_start = generated_text.rfind(config['user_prompt']) + len(config['user_prompt'])
