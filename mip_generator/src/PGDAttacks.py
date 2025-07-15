@@ -106,30 +106,34 @@ class VLMWhiteBoxPGDAttack:
                 x_adv.data = torch.round(x_adv.data * 255) / 255
             x_adv.requires_grad = True
 
+            # Efficient Early Stopping Check
             if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
+                    # Reuse the logits from the forward pass we already did for the loss
+                    logits = outputs.logits
 
-                    seq_ids = input_ids_for_gen.clone()
-                    seq_mask = attention_mask_for_gen.clone()
-                    all_pass = True
-                    for j, t_id in enumerate(target_ids):
-                        out = self.model(
-                            pixel_values=x_adv,
-                            input_ids=seq_ids,
-                            attention_mask=seq_mask,
-                            image_sizes=image_sizes
-                        )
-                        last_logits = out.logits[0, -1]
-                        prob = torch.softmax(last_logits, dim=-1)[t_id]
-                        if prob <= 0.99:
-                            all_pass = False
-                            break
-                        seq_ids = torch.cat([seq_ids, t_id.view(1, 1)], dim=1)
-                        seq_mask = torch.cat([seq_mask, torch.ones_like(t_id.view(1, 1))], dim=1)
+                    # The model internally shifts logits and labels, so the logit at position j
+                    # corresponds to the label at position j. We just need to find where our
+                    # target labels are.
+                    
+                    # Find the indices of the target tokens (where labels are not -100)
+                    target_token_indices = (labels != -100).nonzero(as_tuple=True)
+                    
+                    # Get the logits that correspond to the positions of our target tokens
+                    relevant_logits = logits[target_token_indices]
+                    
+                    # Get the token IDs of our target tokens
+                    target_token_ids = labels[target_token_indices]
 
-                    if all_pass:
+                    # Calculate the probabilities of all tokens at the relevant positions
+                    probs = torch.softmax(relevant_logits, dim=-1)
+                    
+                    # Get the specific probabilities of the correct target tokens
+                    correct_token_probs = probs.gather(1, target_token_ids.unsqueeze(1)).squeeze()
 
-                        logger.info(f"Early stopping at step {i}. Target probability achieved.")
+                    # Check if all target tokens have a probability > 99%
+                    if torch.all(correct_token_probs > 0.99):
+                        logger.info(f"Early stopping at step {i}. All target token probabilities > 99%.")
                         if self.wandb_run:
                             self.wandb_run.log({"early_stop_step": i})
                         break
