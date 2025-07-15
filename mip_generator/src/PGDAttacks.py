@@ -107,6 +107,7 @@ class VLMWhiteBoxPGDAttack:
             x_adv.requires_grad = True
 
             # Efficient Early Stopping Check
+            # Efficient Early Stopping Check
             if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
                     # Reuse the logits from the forward pass we already did for the loss
