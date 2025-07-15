@@ -76,7 +76,6 @@ def main():
     logging.info("Model and processor loaded successfully.")
     device = next(model.parameters()).device
     logging.info(f"Model loaded on device: {device}")
-
     # --- 2. Load Image ---
     logging.info(f"Loading input image from: {INPUT_IMAGE_PATH}")
     image = load_image(INPUT_IMAGE_PATH)
@@ -126,7 +125,7 @@ def main():
     # We use the length of the prompt-only input (`inputs_for_gen`) to determine
     # how much of the `labels` tensor to mask with -100.
     labels = input_ids_for_loss.clone()
-    prompt_length = inputs_for_gen['input_ids'].shape[1]
+    prompt_length = input_ids_for_gen.shape[1]
     labels[:, :prompt_length] = -100
 
     logging.info("Inputs for loss calculation and early stopping have been prepared.")
