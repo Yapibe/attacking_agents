@@ -108,9 +108,10 @@ def main():
     image_sizes = inputs_for_loss.get('image_sizes')
 
     # Create labels by cloning the loss input_ids and masking the prompt.
+    # We use the length of the prompt-only input (`inputs_for_gen`) to determine
+    # how much of the `labels` tensor to mask with -100.
     labels = input_ids_for_loss.clone()
-    target_ids = processor.tokenizer(config['target_text'], add_special_tokens=False).input_ids
-    prompt_length = labels.shape[1] - len(target_ids)
+    prompt_length = inputs_for_gen['input_ids'].shape[1]
     labels[:, :prompt_length] = -100
     
     # B. Prepare inputs for EARLY STOPPING CHECK (does NOT include the target text)
