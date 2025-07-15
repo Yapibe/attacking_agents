@@ -89,7 +89,22 @@ def main():
     # Use the chat template to format the conversation correctly, including the system prompt.
     logging.info("Preparing inputs for the attack using chat template...")
 
-    # A. Prepare inputs for LOSS CALCULATION (includes the target text)
+    # A. Prepare inputs for EARLY STOPPING CHECK (does NOT include the target text)
+    # We do this first to get the precise length of the prompt before the assistant's response.
+    prompt_only_messages = [
+        {"role": "system", "content": config['system_prompt']},
+        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
+    ]
+    formatted_prompt_only = processor.tokenizer.apply_chat_template(
+        prompt_only_messages, tokenize=False, add_generation_prompt=True
+    )
+    inputs_for_gen = processor(
+        text=formatted_prompt_only, images=image, return_tensors="pt"
+    ).to(device)
+    input_ids_for_gen = inputs_for_gen['input_ids']
+    attention_mask_for_gen = inputs_for_gen['attention_mask']
+
+    # B. Prepare inputs for LOSS CALCULATION (includes the target text)
     target_messages = [
         {"role": "system", "content": config['system_prompt']},
         {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
@@ -107,26 +122,12 @@ def main():
     attention_mask_for_loss = inputs_for_loss['attention_mask']
     image_sizes = inputs_for_loss.get('image_sizes')
 
-    # Create labels by cloning the loss input_ids and masking the prompt.
+    # C. Create labels by cloning the loss input_ids and masking the prompt.
     # We use the length of the prompt-only input (`inputs_for_gen`) to determine
     # how much of the `labels` tensor to mask with -100.
     labels = input_ids_for_loss.clone()
     prompt_length = inputs_for_gen['input_ids'].shape[1]
     labels[:, :prompt_length] = -100
-    
-    # B. Prepare inputs for EARLY STOPPING CHECK (does NOT include the target text)
-    prompt_only_messages = [
-        {"role": "system", "content": config['system_prompt']},
-        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
-    ]
-    formatted_prompt_only = processor.tokenizer.apply_chat_template(
-        prompt_only_messages, tokenize=False, add_generation_prompt=True
-    )
-    inputs_for_gen = processor(
-        text=formatted_prompt_only, images=image, return_tensors="pt"
-    ).to(device)
-    input_ids_for_gen = inputs_for_gen['input_ids']
-    attention_mask_for_gen = inputs_for_gen['attention_mask']
 
     logging.info("Inputs for loss calculation and early stopping have been prepared.")
 
