@@ -5,7 +5,7 @@ Configuration settings for the MIP generation script.
 # --- Model Configuration ---
 # The Hugging Face model ID for the Vision-Language Model.
 # Using the base model is recommended for easier attacks.
-MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Model"
+MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 # --- Input and Output Configuration ---
 # Path to the input image to be perturbed.
