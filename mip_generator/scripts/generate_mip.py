@@ -1,98 +1,44 @@
+
+"""
+Main script to generate a Malicious Image Patch (MIP).
+
+This script orchestrates the entire process of loading a Vision-Language Model,
+applying a PGD-based adversarial attack to an input image, and saving the
+resulting malicious image.
+"""
+
 import os
 import torch
 import wandb
 import logging
 from PIL import Image
+from src import config
 from src.models import load_model
-from src.utils import load_image, save_image
+from src.utils import load_image, save_image, setup_logging, initialize_wandb
 from src.PGDAttacks import VLMWhiteBoxPGDAttack
 
-# --- Configuration ---
-# Use the existing Llava model for now
-MODEL_ID = "llava-hf/llava-v1.6-vicuna-13b-hf"
-INPUT_IMAGE_PATH = "data/backgrounds/example_grey.png"
-# The prompt we want to hijack
-USER_PROMPT = "Describe the image in detail."
-# The malicious command we want the model to output
-TARGET_TEXT = "MIP-WIN"
-# The default system prompt for the Vicuna model
-SYSTEM_PROMPT = "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions."
-OUTPUT_DIR = "outputs/generated_mips"
-OUTPUT_IMAGE_NAME = "folder_attack.png" # Updated name
-
-# Attack parameters
-config = {
-    "model_id": MODEL_ID,
-    "system_prompt": SYSTEM_PROMPT,
-    "user_prompt": USER_PROMPT,
-    "target_text": TARGET_TEXT,
-    "eps": 128 / 255,  # EXTREME
-    "alpha": 1e-2,
-    "steps": 1000,       # EXTREME
-}
-
-def setup_logging(log_dir="logs"):
-    """Sets up logging to both file and console."""
-    os.makedirs(log_dir, exist_ok=True)
-    log_filename = os.path.join(log_dir, "mip_generation.log")
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ]
-    )
-    # Suppress overly verbose logs from libraries
-    logging.getLogger("PIL").setLevel(logging.WARNING)
-    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
-
-
-def main():
+def prepare_attack_inputs(processor, image, device):
     """
-    Main function to generate a malicious image patch.
+    Prepares the inputs required for the PGD attack and verification.
+
+    This function formats the prompts using the model's chat template and
+    tokenizes them, preparing tensors for the loss calculation, early stopping
+    checks, and final verification.
+
+    Args:
+        processor: The model's processor for tokenization.
+        image (PIL.Image): The input image.
+        device (torch.device): The device to move tensors to (e.g., 'cuda').
+
+    Returns:
+        A dictionary containing all the prepared tensors.
     """
-    setup_logging()
-    logging.info("--- Starting MIP Generation ---")
-
-    # --- 0. Initialize W&B ---
-    try:
-        run = wandb.init(project="mip-generator-attack", config=config)
-        logging.info(f"W&B run initialized successfully. Run name: {run.name}")
-    except Exception as e:
-        logging.error(f"Failed to initialize W&B: {e}")
-        run = None
-
-    # Create output directory if it doesn't exist
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, OUTPUT_IMAGE_NAME)
-    logging.info(f"Output directory set to: {output_path}")
-
-    # --- 1. Load Model and Processor ---
-    logging.info(f"Loading model and processor for: {config['model_id']}")
-    # Pass the tokenizer explicitly to the attack
-    model, processor = load_model(config['model_id'])
-    logging.info("Model and processor loaded successfully.")
-    device = next(model.parameters()).device
-    logging.info(f"Model loaded on device: {device}")
-    # --- 2. Load Image ---
-    logging.info(f"Loading input image from: {INPUT_IMAGE_PATH}")
-    image = load_image(INPUT_IMAGE_PATH)
-    logging.info(f"Image loaded successfully. Size: {image.size}")
-    
-    if run:
-        run.log({"original_image": wandb.Image(image)})
-
-    # --- 3. Prepare Inputs for the Attack ---
-    # Use the chat template to format the conversation correctly, including the system prompt.
     logging.info("Preparing inputs for the attack using chat template...")
 
-    # A. Prepare inputs for EARLY STOPPING CHECK (does NOT include the target text)
-    # We do this first to get the precise length of the prompt before the assistant's response.
+    # --- Prepare inputs for the early stopping check (prompt only) ---
     prompt_only_messages = [
-        {"role": "system", "content": config['system_prompt']},
-        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
+        {"role": "system", "content": config.SYSTEM_PROMPT},
+        {"role": "user", "content": f"<image>\n{config.USER_PROMPT}"},
     ]
     formatted_prompt_only = processor.tokenizer.apply_chat_template(
         prompt_only_messages, tokenize=False, add_generation_prompt=True
@@ -100,14 +46,12 @@ def main():
     inputs_for_gen = processor(
         text=formatted_prompt_only, images=image, return_tensors="pt"
     ).to(device)
-    input_ids_for_gen = inputs_for_gen['input_ids']
-    attention_mask_for_gen = inputs_for_gen['attention_mask']
 
-    # B. Prepare inputs for LOSS CALCULATION (includes the target text)
+    # --- Prepare inputs for the loss calculation (includes target text) ---
     target_messages = [
-        {"role": "system", "content": config['system_prompt']},
-        {"role": "user", "content": f"<image>\n{config['user_prompt']}"},
-        {"role": "assistant", "content": config['target_text']}
+        {"role": "system", "content": config.SYSTEM_PROMPT},
+        {"role": "user", "content": f"<image>\n{config.USER_PROMPT}"},
+        {"role": "assistant", "content": config.TARGET_TEXT}
     ]
     formatted_target_prompt = processor.tokenizer.apply_chat_template(
         target_messages, tokenize=False, add_generation_prompt=False
@@ -115,116 +59,149 @@ def main():
     inputs_for_loss = processor(
         text=formatted_target_prompt, images=image, return_tensors="pt"
     ).to(device)
-    
-    pixel_values = inputs_for_loss['pixel_values']
-    input_ids_for_loss = inputs_for_loss['input_ids']
-    attention_mask_for_loss = inputs_for_loss['attention_mask']
-    image_sizes = inputs_for_loss.get('image_sizes')
 
-    # C. Create labels by cloning the loss input_ids and masking the prompt.
-    # We use the length of the prompt-only input (`inputs_for_gen`) to determine
-    # how much of the `labels` tensor to mask with -100.
-    labels = input_ids_for_loss.clone()
-    prompt_length = input_ids_for_gen.shape[1]
-    labels[:, :prompt_length] = -100
+    # --- Create labels for the loss function ---
+    # The labels are the input_ids of the target, with the prompt part masked.
+    labels = inputs_for_loss['input_ids'].clone()
+    prompt_length = inputs_for_gen['input_ids'].shape[1]
+    labels[:, :prompt_length] = -100  # Mask out the prompt tokens
 
     logging.info("Inputs for loss calculation and early stopping have been prepared.")
 
-    # --- 4. Initialize and Run Attack ---
+    return {
+        "pixel_values": inputs_for_loss['pixel_values'],
+        "input_ids_for_loss": inputs_for_loss['input_ids'],
+        "attention_mask_for_loss": inputs_for_loss['attention_mask'],
+        "input_ids_for_gen": inputs_for_gen['input_ids'],
+        "attention_mask_for_gen": inputs_for_gen['attention_mask'],
+        "labels": labels,
+        "image_sizes": inputs_for_loss.get('image_sizes'),
+    }
+
+def verify_attack(model, processor, image_path, device):
+    """
+    Verifies the effectiveness of the attack by generating text from the
+    adversarial image and checking if it matches the target text.
+
+    Args:
+        model: The VLM to use for verification.
+        processor: The model's processor.
+        image_path (str): The path to the saved adversarial image.
+        device (torch.device): The device to run the model on.
+
+    Returns:
+        The generated text from the model.
+    """
+    logging.info("Verifying the attack effectiveness...")
+    try:
+        adv_image = Image.open(image_path)
+        logging.info("Successfully loaded saved adversarial image for verification.")
+    except Exception as e:
+        logging.error(f"Could not load the saved image for verification: {e}")
+        return None
+
+    # Format the prompt for verification using the chat template.
+    verify_messages = [
+        {"role": "system", "content": config.SYSTEM_PROMPT},
+        {"role": "user", "content": f"<image>\n{config.USER_PROMPT}"}
+    ]
+    formatted_verify_prompt = processor.tokenizer.apply_chat_template(
+        verify_messages, tokenize=False, add_generation_prompt=True
+    )
+
+    # Process the text and adversarial image.
+    verify_inputs = processor(
+        text=formatted_verify_prompt, images=adv_image, return_tensors="pt"
+    ).to(device)
+
+    # Generate text from the model.
+    with torch.no_grad():
+        output = model.generate(**verify_inputs, max_new_tokens=100)
+
+    # Decode the output and extract the assistant's response.
+    generated_text = processor.decode(output[0], skip_special_tokens=True)
+    
+    try:
+        # Isolate the assistant's reply by finding the end of the user prompt.
+        assistant_response_start = generated_text.rfind(config.USER_PROMPT) + len(config.USER_PROMPT)
+        verification_result = generated_text[assistant_response_start:].strip()
+    except Exception:
+        # Fallback in case the prompt isn't found in the output.
+        verification_result = generated_text.split("ASSISTANT:")[-1].strip()
+
+    logging.info(f"Verification - Model's output: '{verification_result}'")
+    return verification_result
+
+def main():
+    """
+    Main function to run the MIP generation pipeline.
+    """
+    setup_logging()
+    logging.info("--- Starting MIP Generation ---")
+
+    # --- 0. Initialize W&B ---
+    wandb_run = initialize_wandb()
+
+    # --- 1. Setup Paths ---
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    output_path = os.path.join(config.OUTPUT_DIR, config.OUTPUT_IMAGE_NAME)
+    logging.info(f"Output path set to: {output_path}")
+
+    # --- 2. Load Model and Processor ---
+    logging.info(f"Loading model and processor for: {config.MODEL_ID}")
+    model, processor = load_model(config.MODEL_ID)
+    device = next(model.parameters()).device
+    logging.info(f"Model loaded on device: {device}")
+
+    # --- 3. Load Image ---
+    logging.info(f"Loading input image from: {config.INPUT_IMAGE_PATH}")
+    image = load_image(config.INPUT_IMAGE_PATH)
+    if wandb_run:
+        wandb_run.log({"original_image": wandb.Image(image)})
+
+    # --- 4. Prepare Inputs for the Attack ---
+    attack_inputs = prepare_attack_inputs(processor, image, device)
+
+    # --- 5. Initialize and Run Attack ---
     logging.info("Initializing PGD attack...")
     attack = VLMWhiteBoxPGDAttack(
-        model, 
-        processor, # Pass the processor which contains the tokenizer
-        eps=config['eps'], 
-        n=config['steps'], 
-        alpha=config['alpha'], 
-        early_stop=True,
-        wandb_run=run
+        model,
+        processor,
+        eps=config.EPS,
+        n=config.STEPS,
+        alpha=config.ALPHA,
+        wandb_run=wandb_run
     )
     
     logging.info("Starting PGD attack execution...")
     adversarial_image_tensor = attack.execute(
-        pixel_values=pixel_values,
-        input_ids_for_loss=input_ids_for_loss,
-        attention_mask_for_loss=attention_mask_for_loss,
-        input_ids_for_gen=input_ids_for_gen,
-        attention_mask_for_gen=attention_mask_for_gen,
-        labels=labels,
-        image_sizes=image_sizes,
-        target_text=config['target_text']
+        pixel_values=attack_inputs["pixel_values"],
+        input_ids_for_loss=attack_inputs["input_ids_for_loss"],
+        attention_mask_for_loss=attack_inputs["attention_mask_for_loss"],
+        labels=attack_inputs["labels"],
+        image_sizes=attack_inputs["image_sizes"],
     )
     logging.info("PGD attack finished.")
 
-    # --- 5. Save the Adversarial Image ---
+    # --- 6. Save the Adversarial Image ---
     logging.info(f"Saving adversarial image to: {output_path}")
     save_image(adversarial_image_tensor, output_path)
-    logging.info("Adversarial image saved successfully.")
+    if wandb_run:
+        wandb_run.log({"adversarial_image": wandb.Image(Image.open(output_path))})
+
+    # --- 7. Verification ---
+    verification_result = verify_attack(model, processor, output_path, device)
+    if wandb_run and verification_result:
+        wandb_run.log({"verification_output": verification_result})
     
-    if run:
-        try:
-            adv_image_pil = Image.open(output_path)
-            run.log({"adversarial_image": wandb.Image(adv_image_pil)})
-        except Exception as e:
-            logging.error(f"Could not log adversarial image to W&B: {e}")
-
-    # --- 6. Verification ---
-    logging.info("Verifying the attack effectiveness...")
-    try:
-        adv_image_pil_for_verify = Image.open(output_path)
-        logging.info("Successfully loaded saved adversarial image for verification.")
-    except Exception as e:
-        logging.error(f"Could not load the saved image for verification: {e}")
-        adv_image_pil_for_verify = None
-
-    if adv_image_pil_for_verify:
-        # Use the same chat template structure for verification.
-        verify_messages = [
-            {"role": "system", "content": config['system_prompt']},
-            {"role": "user", "content": f"<image>\n{config['user_prompt']}"}
-        ]
-        
-        # Format the prompt string
-        formatted_verify_prompt = processor.tokenizer.apply_chat_template(
-            verify_messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-
-        # Process the text and image
-        verify_inputs = processor(
-            text=formatted_verify_prompt,
-            images=adv_image_pil_for_verify,
-            return_tensors="pt"
-        ).to(device)
-        
-        with torch.no_grad():
-            output = model.generate(**verify_inputs, max_new_tokens=100)
-        
-        # Decode the full output
-        generated_text = processor.decode(output[0], skip_special_tokens=True)
-        
-        # Extract only the assistant's response
-        try:
-            # Find the last occurrence of the user prompt to isolate the assistant's reply
-            assistant_response_start = generated_text.rfind(config['user_prompt']) + len(config['user_prompt'])
-            verification_result = generated_text[assistant_response_start:].strip()
-        except Exception:
-             # Fallback for safety
-            verification_result = generated_text.split("ASSISTANT:")[-1].strip()
-
-        logging.info(f"Verification - Model's output: '{verification_result}'")
-        if run:
-            run.log({"verification_output": verification_result})
-    
-    if run:
-        run.finish()
+    if wandb_run:
+        wandb_run.finish()
         logging.info("W&B run finished.")
     
     logging.info("--- MIP Generation Complete ---")
 
-
 if __name__ == "__main__":
+    # Adjust the current working directory if running from the project root.
     if os.path.basename(os.getcwd()) == 'attacking_agents':
         os.chdir('mip_generator')
-
     main()

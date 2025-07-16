@@ -1,41 +1,48 @@
+"""
+Implements the PGD-based white-box attack for Vision-Language Models.
+"""
 import torch
 import torch.nn as nn
 import logging
 from tqdm import tqdm
 
-# Get a logger for this module
+# Get a logger for this module.
 logger = logging.getLogger(__name__)
-
 
 class VLMWhiteBoxPGDAttack:
     """
-    PGD L_inf white-box attack for Vision-Language Models.
-    Targeted attack: tries to force the model to generate the desired output sequence for an image.
+    Performs a Projected Gradient Descent (PGD) L-infinity white-box attack
+    on a Vision-Language Model.
+
+    This is a targeted attack that attempts to force the model to generate a
+    specific target text sequence when presented with a perturbed image.
     """
 
-    def __init__(self, model, processor, eps=8 / 255., n=50, alpha=1e-2,
+    def __init__(self, model, processor, eps=8/255., n=50, alpha=1e-2,
                  rand_init=True, early_stop=True, wandb_run=None):
         """
-        Parameters:
-        - model: VLM agent model with image + text input, outputs logits or token sequences
-        - processor: The processor object from Hugging Face, which includes the tokenizer.
-        - eps: maximum perturbation
-        - n: number of PGD steps
-        - alpha: learning rate for Adam optimizer
-        - rand_init: whether to randomly initialize image
-        - early_stop: stop if target sequence is already achieved
-        - wandb_run: optional wandb run object for logging
+        Initializes the PGD attack.
+
+        Args:
+            model: The VLM to be attacked.
+            processor: The processor for the VLM, which includes the tokenizer.
+            eps (float): The maximum perturbation allowed (L-infinity norm).
+            n (int): The number of PGD steps (iterations).
+            alpha (float): The learning rate or step size for each iteration.
+            rand_init (bool): If True, starts with a random perturbation.
+            early_stop (bool): If True, stops early if the target is achieved.
+            wandb_run: An optional Weights & Biases run object for logging.
         """
         self.model = model
         self.processor = processor
-        self.tokenizer = processor.tokenizer # Explicitly get the tokenizer
+        self.tokenizer = processor.tokenizer
         self.n = n
         self.alpha = alpha
         self.eps = eps
         self.rand_init = rand_init
         self.early_stop = early_stop
         self.wandb_run = wandb_run
-        self.loss_func = nn.CrossEntropyLoss(reduction='mean')  # token-level loss
+        self.loss_func = nn.CrossEntropyLoss(reduction='mean')
 
         logger.info("VLMWhiteBoxPGDAttack initialized.")
         logger.info(f"  - Epsilon (eps): {self.eps:.4f}")
@@ -45,101 +52,92 @@ class VLMWhiteBoxPGDAttack:
         logger.info(f"  - Early Stopping: {self.early_stop}")
 
     def execute(self, pixel_values, input_ids_for_loss, attention_mask_for_loss,
-                input_ids_for_gen, attention_mask_for_gen, labels, image_sizes, target_text):
+                labels, image_sizes):
         """
-        Performs a targeted PGD attack on an input image.
+        Executes the PGD attack on the input image.
 
         Args:
-            pixel_values (Tensor): Input image tensor.
-            input_ids_for_loss (Tensor): Token IDs for loss calculation (includes target).
-            attention_mask_for_loss (Tensor): Attention mask for loss calculation.
-            input_ids_for_gen (Tensor): Token IDs for generation check (prompt only).
-            attention_mask_for_gen (Tensor): Attention mask for generation check.
-            labels (Tensor): Target output tokens with masking.
-            image_sizes (Tensor): Original sizes of the images.
-            target_text (str): The target string for early stopping.
+            pixel_values (torch.Tensor): The input image tensor.
+            input_ids_for_loss (torch.Tensor): Token IDs for loss calculation (prompt + target).
+            attention_mask_for_loss (torch.Tensor): Attention mask for the loss calculation.
+            labels (torch.Tensor): The target output tokens, with prompt tokens masked.
+            image_sizes (torch.Tensor): The original sizes of the images.
 
         Returns:
-            Adversarial image tensor
+            torch.Tensor: The adversarially perturbed image tensor.
         """
         logger.info("Starting PGD attack execution.")
-        logger.info(f"Initial shape of pixel_values: {pixel_values.shape}")
+        # Clone the original image tensor to create the adversarial example.
         x_adv = pixel_values.clone().detach()
 
+        # Start with a random perturbation if enabled.
         if self.rand_init:
             logger.info("Applying random initialization to the image tensor.")
             x_adv += torch.empty_like(pixel_values).uniform_(-self.eps, self.eps)
-            x_adv = torch.clamp(x_adv, 0, 1)
-            x_adv = torch.round(x_adv * 255) / 255
+            x_adv = torch.clamp(x_adv, 0, 1) # Ensure the perturbation is valid.
 
+        # The adversarial image requires gradients for optimization.
         x_adv.requires_grad = True
 
-        optimizer = torch.optim.Adam([x_adv], lr=self.alpha, betas=(0.9, 0.9))
+        # Use the Adam optimizer for more stable gradient updates.
+        optimizer = torch.optim.Adam([x_adv], lr=self.alpha)
 
-
-        target_ids = labels[0, labels[0] != -100]
-
-        # Wrap the loop with tqdm for a progress bar
+        # PGD main loop
         for i in tqdm(range(self.n), desc="PGD Attack Steps"):
             optimizer.zero_grad()
+
+            # Forward pass through the model to get the loss.
             outputs = self.model(
                 pixel_values=x_adv,
                 input_ids=input_ids_for_loss,
                 attention_mask=attention_mask_for_loss,
                 labels=labels,
-                image_sizes=image_sizes
+                image_sizes=image_sizes,
+                return_dict=True
             )
             loss = outputs.loss
 
             if i % 10 == 0:
                 logger.info(f"Step [{i}/{self.n}] - Loss: {loss.item():.4f}")
-
             if self.wandb_run:
                 self.wandb_run.log({"step": i, "loss": loss.item()})
 
+            # Backward pass to compute gradients.
             loss.backward()
+
+            # Zero out gradients for the dummy images in the stack.
+            if x_adv.grad is not None and x_adv.shape[1] > 1:
+                x_adv.grad.data[:, 1:, ...] = 0
+
+            # Update the adversarial image.
             optimizer.step()
 
+            # Project the perturbation back into the epsilon ball.
             with torch.no_grad():
                 delta = torch.clamp(x_adv - pixel_values, -self.eps, self.eps)
                 x_adv.data = pixel_values + delta
-                x_adv.data = torch.clamp(x_adv.data, 0, 1)
-                x_adv.data = torch.round(x_adv.data * 255) / 255
+                x_adv.data = torch.clamp(x_adv.data, 0, 1) # Ensure valid image range.
+            
+            # Re-enable gradients for the next iteration.
             x_adv.requires_grad = True
 
-            # Efficient Early Stopping Check
-            # Efficient Early Stopping Check
+            # --- Efficient Early Stopping Check ---
             if self.early_stop and (i % 10 == 0 or i == self.n - 1):
                 with torch.no_grad():
-                    # Reuse the logits from the forward pass we already did for the loss
+                    # Reuse the logits from the forward pass to check probabilities.
                     logits = outputs.logits
-
-                    # The model internally shifts logits and labels, so the logit at position j
-                    # corresponds to the label at position j. We just need to find where our
-                    # target labels are.
-                    
-                    # Find the indices of the target tokens (where labels are not -100)
                     target_token_indices = (labels != -100).nonzero(as_tuple=True)
-                    
-                    # Get the logits that correspond to the positions of our target tokens
                     relevant_logits = logits[target_token_indices]
-                    
-                    # Get the token IDs of our target tokens
                     target_token_ids = labels[target_token_indices]
-
-                    # Calculate the probabilities of all tokens at the relevant positions
-                    probs = torch.softmax(relevant_logits, dim=-1)
                     
-                    # Get the specific probabilities of the correct target tokens
+                    # If all target tokens have a high probability, stop early.
+                    probs = torch.softmax(relevant_logits, dim=-1)
                     correct_token_probs = probs.gather(1, target_token_ids.unsqueeze(1)).squeeze()
-
-                    # Check if all target tokens have a probability > 99%
                     if torch.all(correct_token_probs > 0.99):
                         logger.info(f"Early stopping at step {i}. All target token probabilities > 99%.")
                         if self.wandb_run:
                             self.wandb_run.log({"early_stop_step": i})
                         break
         
-        logger.info(f"Final shape of adversarial tensor: {x_adv.shape}")
         logger.info("PGD attack finished.")
         return x_adv

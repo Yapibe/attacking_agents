@@ -1,30 +1,40 @@
+"""
+Handles the loading of Vision-Language Models from Hugging Face.
+"""
 import torch
 import logging
-from transformers import AutoProcessor, LlavaNextForConditionalGeneration
+from transformers import AutoProcessor, AutoModelForCausalLM
 
-# Get a logger for this module
+# Get a logger for this module.
 logger = logging.getLogger(__name__)
 
-def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
+def load_model(model_id: str):
     """
-    Loads a Vision-Language Model and its processor from Hugging Face.
+    Loads a Vision-Language Model and its processor from the Hugging Face Hub.
+
+    This function uses the AutoModelForCausalLM and AutoProcessor classes to
+    load a wide range of models, making it flexible and easy to adapt.
 
     Args:
-        model_id (str): The identifier of the model to load.
+        model_id (str): The identifier of the model to load (e.g., "meta-llama/Llama-3.2-11B-Vision-Model").
 
     Returns:
-        (LlavaNextForConditionalGeneration, AutoProcessor): A tuple containing the loaded model and processor.
+        A tuple containing:
+        - model (AutoModelForCausalLM): The loaded model.
+        - processor (AutoProcessor): The corresponding processor.
     """
     logger.info(f"Starting model loading for model_id: {model_id}")
     
     # --- Load Model ---
-    # Use LlavaNextForConditionalGeneration for LLaVA v1.6+ models
-    logger.info("Loading model from pretrained using LlavaNextForConditionalGeneration...")
+    # AutoModelForCausalLM provides a generic interface for causal language models,
+    # including vision-capable models like Llama 3.2 Vision.
+    logger.info("Loading model from pretrained using AutoModelForCausalLM...")
     try:
-        model = LlavaNextForConditionalGeneration.from_pretrained(
+        model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16,  # Use float16 for memory efficiency.
+            low_cpu_mem_usage=True,     # Optimizes memory usage on the CPU.
+            trust_remote_code=True,     # Required for some models with custom code.
         )
         logger.info("Model loaded successfully.")
     except Exception as e:
@@ -32,6 +42,7 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
         raise
 
     # --- Load Processor ---
+    # The processor handles both text tokenization and image preprocessing.
     logger.info("Loading processor from pretrained...")
     try:
         processor = AutoProcessor.from_pretrained(model_id, use_fast=True)
@@ -40,24 +51,7 @@ def load_model(model_id: str = "llava-hf/llava-1.5-7b-hf"):
         logger.error(f"Failed to load processor: {e}")
         raise
 
-    # --- Set Chat Template ---
-    # The Vicuna-based model needs a chat template to be explicitly set.
-    # This defines how the conversation is formatted.
-    vicuna_template = (
-        "{% for message in messages %}"
-        "  {% if message['role'] == 'system' %}"
-        "    {{ message['content'] + '\n' }}"
-        "  {% elif message['role'] == 'user' %}"
-        "    {{ 'USER: ' + message['content'] + '\n' }}"
-        "  {% elif message['role'] == 'assistant' %}"
-        "    {{ 'ASSISTANT: ' + message['content'] + eos_token + '\n' }}"
-        "  {% endif %}"
-        "{% endfor %}"
-    )
-    processor.tokenizer.chat_template = vicuna_template
-    logger.info("Vicuna chat template has been set on the tokenizer.")
-
-    # --- Move to GPU ---
+    # --- Move to GPU if available ---
     if torch.cuda.is_available():
         logger.info("CUDA is available. Moving model to GPU...")
         try:

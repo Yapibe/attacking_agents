@@ -1,71 +1,96 @@
-
+"""
+Utility functions for image processing and other tasks.
+"""
+import os
 import logging
-from PIL import Image
 import torch
-
-# Get a logger for this module
-logger = logging.getLogger(__name__)
+import wandb
+from PIL import Image
+from src import config
 
 def load_image(image_path: str) -> Image.Image:
     """
-    Loads an image from the specified path.
+    Loads an image from the given path.
 
     Args:
-        image_path (str): The path to the image file.
+        image_path: The path to the image file.
 
     Returns:
-        Image.Image: The loaded image.
+        A PIL Image object.
     """
-    try:
-        image = Image.open(image_path).convert("RGB")
-        logger.info("Image loaded and converted to RGB successfully.")
-        return image
-    except FileNotFoundError:
-        logger.error(f"Image file not found at path: {image_path}")
-        raise
-    except Exception as e:
-        logger.error(f"An error occurred while loading the image: {e}")
-        raise
+    image = Image.open(image_path).convert("RGB")
+    return image
 
-def save_image(tensor: torch.Tensor, output_path: str):
+def save_image(tensor: torch.Tensor, file_path: str):
     """
     Saves a tensor as an image file.
-    Handles both 4D (B, C, H, W) and 5D (B, N, C, H, W) tensors from different models.
 
     Args:
-        tensor (torch.Tensor): The image tensor to save. Assumes values are in [0, 1].
-        output_path (str): The path to save the image to.
+        tensor: The image tensor to save.
+        file_path: The path where the image will be saved.
     """
-    logger.info(f"Saving image tensor to path: {output_path}")
-    logger.info(f"Original tensor shape: {tensor.shape}")
+    # Ensure the tensor is on the CPU and in the correct format
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+    
+    # If the tensor has a batch dimension, remove it
+    if tensor.dim() == 4 and tensor.shape[0] == 1:
+        tensor = tensor.squeeze(0)
+    
+    # Convert to PIL Image
+    # The tensor is expected to be in [C, H, W] format with values in [0, 1]
+    image = Image.fromarray((tensor.permute(1, 2, 0).detach().numpy() * 255).astype('uint8'))
+    
+    # Save the image
+    image.save(file_path)
 
+def setup_logging(log_dir="logs"):
+    """
+    Sets up logging to both a file and the console.
+    
+    Args:
+        log_dir (str): The directory to save log files in.
+    """
+    os.makedirs(log_dir, exist_ok=True)
+    log_filename = os.path.join(log_dir, "mip_generation.log")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        handlers=[
+            logging.FileHandler(log_filename),
+            logging.StreamHandler()
+        ]
+    )
+    # Suppress overly verbose logs from third-party libraries.
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+
+def initialize_wandb():
+    """
+    Initializes a new Weights & Biases run.
+
+    Returns:
+        A W&B run object if initialization is successful, otherwise None.
+    """
+    if not config.WANDB_LOGGING:
+        logging.info("W&B logging is disabled in the configuration.")
+        return None
     try:
-        # --- Handle 5D tensors from Llava-NeXT ---
-        if tensor.dim() == 5:
-            logger.info("Detected a 5D tensor. Selecting the first image [0, 0] for saving.")
-            # Select the first image from the batch and the first from the num_images dimension
-            tensor_to_save = tensor[0, 0, :, :, :]
-        # --- Handle standard 4D tensors ---
-        elif tensor.dim() == 4:
-            logger.info("Detected a 4D tensor. Selecting the first image [0] for saving.")
-            tensor_to_save = tensor.squeeze(0)
-        else:
-            tensor_to_save = tensor
-
-        logger.info(f"Shape of tensor being saved: {tensor_to_save.shape}")
-
-        # Clamp tensor to be sure it is in [0,1] range
-        tensor_to_save = torch.clamp(tensor_to_save, 0, 1)
-        
-        # Convert tensor to PIL Image
-        # Permute C,H,W to H,W,C, detach from graph, move to CPU, convert to numpy, scale to 0-255
-        image_numpy = (tensor_to_save.permute(1, 2, 0).detach().cpu().numpy() * 255).astype('uint8')
-        image = Image.fromarray(image_numpy)
-        
-        # Save the image
-        image.save(output_path)
-        logger.info(f"Image saved successfully to {output_path}")
+        run = wandb.init(
+            project=config.WANDB_PROJECT,
+            config={
+                "model_id": config.MODEL_ID,
+                "system_prompt": config.SYSTEM_PROMPT,
+                "user_prompt": config.USER_PROMPT,
+                "target_text": config.TARGET_TEXT,
+                "eps": config.EPS,
+                "alpha": config.ALPHA,
+                "steps": config.STEPS,
+            }
+        )
+        logging.info(f"W&B run initialized successfully. Run name: {run.name}")
+        return run
     except Exception as e:
-        logger.error(f"An error occurred while saving the image: {e}")
-        raise
-
+        logging.error(f"Failed to initialize W&B: {e}")
+        return None
