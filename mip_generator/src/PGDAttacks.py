@@ -63,6 +63,7 @@ class VLMWhiteBoxPGDAttack:
             Adversarial image tensor
         """
         logger.info("Starting PGD attack execution.")
+        logger.info(f"Initial shape of pixel_values: {pixel_values.shape}")
         x_adv = pixel_values.clone().detach()
 
         if self.rand_init:
@@ -139,5 +140,6 @@ class VLMWhiteBoxPGDAttack:
                             self.wandb_run.log({"early_stop_step": i})
                         break
         
+        logger.info(f"Final shape of adversarial tensor: {x_adv.shape}")
         logger.info("PGD attack finished.")
         return x_adv
