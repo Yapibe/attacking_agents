@@ -184,8 +184,15 @@ def main():
     logging.info("PGD attack finished.")
 
     # --- 6. Save the Adversarial Image ---
+    # The tensor from the attack can have extra dimensions (e.g., for batch size or dummy images).
+    # We squeeze out dimensions of size 1 and then select the first image from any remaining stack
+    # to ensure a 3D [C, H, W] tensor is passed to the save function.
+    image_to_save = adversarial_image_tensor.squeeze()
+    if image_to_save.dim() > 3:
+        image_to_save = image_to_save[0]
+
     logging.info(f"Saving adversarial image to: {output_path}")
-    save_image(adversarial_image_tensor, output_path)
+    save_image(image_to_save, output_path)
     if wandb_run:
         wandb_run.log({"adversarial_image": wandb.Image(Image.open(output_path))})
 
