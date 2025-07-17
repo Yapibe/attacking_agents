@@ -203,6 +203,8 @@ def main():
         wandb_run.log({"adversarial_image": wandb.Image(Image.open(output_path))})
 
     # --- 7. Verification ---
+    import inspect
+    logging.info(f"Inspect model forward signature: {inspect.signature(model.forward)}")
     verification_result = verify_attack(model, processor, output_path, device)
     if wandb_run and verification_result:
         wandb_run.log({"verification_output": verification_result})
