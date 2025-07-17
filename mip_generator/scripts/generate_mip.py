@@ -126,16 +126,11 @@ def verify_attack(model, processor, image_path, device):
     with torch.no_grad():
         output = model.generate(**generation_kwargs, max_new_tokens=100)
 
-    # Decode the output and extract the assistant's response.
-    generated_text = processor.decode(output[0], skip_special_tokens=True)
-    
-    try:
-        # Isolate the assistant's reply by finding the end of the user prompt.
-        assistant_response_start = generated_text.rfind(config.USER_PROMPT) + len(config.USER_PROMPT)
-        verification_result = generated_text[assistant_response_start:].strip()
-    except Exception:
-        # Fallback in case the prompt isn't found in the output.
-        verification_result = generated_text.split("ASSISTANT:")[-1].strip()
+    # To get a clean response, we decode only the newly generated tokens,
+    # skipping the prompt part of the output.
+    input_length = generation_kwargs["input_ids"].shape[1]
+    generated_tokens = output[0, input_length:]
+    verification_result = processor.decode(generated_tokens, skip_special_tokens=True).strip()
 
     logging.info(f"Verification - Model's output: '{verification_result}'")
     return verification_result
