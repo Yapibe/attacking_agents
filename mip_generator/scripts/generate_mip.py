@@ -116,10 +116,13 @@ def verify_attack(model, processor, image_path, device):
 
     # The `generate` method expects a specific set of arguments. We create a
     # new dictionary containing only the required inputs to avoid errors from
-    # unexpected keys that the processor might add.
+    # unexpected keys that the processor might add. The model needs both the
+    # text inputs (`input_ids`, `attention_mask`) and the image input
+    # (`pixel_values`).
     generation_kwargs = {
         "input_ids": verify_inputs["input_ids"],
         "attention_mask": verify_inputs["attention_mask"],
+        "pixel_values": verify_inputs["pixel_values"],
     }
 
     # Generate text from the model.
