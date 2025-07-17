@@ -114,9 +114,17 @@ def verify_attack(model, processor, image_path, device):
         text=formatted_verify_prompt, images=adv_image, return_tensors="pt"
     ).to(device)
 
+    # The `generate` method expects a specific set of arguments. We create a
+    # new dictionary containing only the required inputs to avoid errors from
+    # unexpected keys that the processor might add.
+    generation_kwargs = {
+        "input_ids": verify_inputs["input_ids"],
+        "attention_mask": verify_inputs["attention_mask"],
+    }
+
     # Generate text from the model.
     with torch.no_grad():
-        output = model.generate(**verify_inputs, max_new_tokens=100)
+        output = model.generate(**generation_kwargs, max_new_tokens=100)
 
     # Decode the output and extract the assistant's response.
     generated_text = processor.decode(output[0], skip_special_tokens=True)
