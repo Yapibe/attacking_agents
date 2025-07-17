@@ -114,29 +114,43 @@ def verify_attack(model, processor, image_path, device):
         text=formatted_verify_prompt, images=adv_image, return_tensors="pt"
     ).to(device)
 
-    # The `generate` method expects a specific set of arguments. We create a
-    # new dictionary containing only the required inputs to avoid errors from
-    # unexpected keys that the processor might add. The model needs both the
-    # text inputs (`input_ids`, `attention_mask`) and the image input
-    # (`pixel_values`).
+    # Manually get the input embeddings by passing the text and image data
+    # through the main body of the model. This bypasses the `generate`
+    # function's strict input validation while still preparing the correct
+    # inputs for the language model head.
+    with torch.no_grad():
+        # The model's main body (`model.model`) returns the last hidden state,
+        # which serves as the input embeddings for the LM head.
+        inputs_embeds = model.model(
+            input_ids=verify_inputs["input_ids"],
+            pixel_values=verify_inputs["pixel_values"],
+            attention_mask=verify_inputs["attention_mask"],
+        )[0]
+
+    # Now, call generate with the embeddings.
     generation_kwargs = {
-        "input_ids": verify_inputs["input_ids"],
+        "inputs_embeds": inputs_embeds,
         "attention_mask": verify_inputs["attention_mask"],
-        "pixel_values": verify_inputs["pixel_values"],
     }
 
-    # Generate text from the model.
     with torch.no_grad():
         output = model.generate(**generation_kwargs, max_new_tokens=100)
 
-    # To get a clean response, we decode only the newly generated tokens,
-    # skipping the prompt part of the output.
-    input_length = generation_kwargs["input_ids"].shape[1]
-    generated_tokens = output[0, input_length:]
-    verification_result = processor.decode(generated_tokens, skip_special_tokens=True).strip()
+    # Since we started from embeddings, the output contains the full sequence.
+    # We decode the entire output and extract the assistant's response.
+    generated_text = processor.decode(output[0], skip_special_tokens=True)
+    
+    try:
+        # Isolate the assistant's reply by finding the end of the user prompt.
+        assistant_response_start = generated_text.rfind(config.USER_PROMPT) + len(config.USER_PROMPT)
+        verification_result = generated_text[assistant_response_start:].strip()
+    except Exception:
+        # Fallback in case the prompt isn't found in the output.
+        verification_result = generated_text.split("ASSISTANT:")[-1].strip()
 
     logging.info(f"Verification - Model's output: '{verification_result}'")
     return verification_result
+
 
 def main():
     """
@@ -203,8 +217,6 @@ def main():
         wandb_run.log({"adversarial_image": wandb.Image(Image.open(output_path))})
 
     # --- 7. Verification ---
-    import inspect
-    logging.info(f"Inspect model forward signature: {inspect.signature(model.forward)}")
     verification_result = verify_attack(model, processor, output_path, device)
     if wandb_run and verification_result:
         wandb_run.log({"verification_output": verification_result})
