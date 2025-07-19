@@ -82,16 +82,32 @@ class VLMWhiteBoxPGDAttack:
         # Use the Adam optimizer for more stable gradient updates.
         optimizer = torch.optim.Adam([x_adv], lr=self.alpha)
 
+        target_mask = labels != -100
+        target_indices = target_mask.nonzero(as_tuple=False)
+
         # PGD main loop
         for i in tqdm(range(self.n), desc="PGD Attack Steps"):
             optimizer.zero_grad()
+
+            partial_labels = labels.clone()
+            partial_labels[:] = -100
+
+            if i < len(target_indices):
+                unmask_up_to = i + 1
+            else:
+                unmask_up_to = len(target_indices)
+
+            partial_indices = target_indices[:unmask_up_to]
+            for index_pair in partial_indices:
+                partial_labels[index_pair[0], index_pair[1]] = labels[index_pair[0], index_pair[1]]
 
             # Forward pass through the model to get the loss.
             outputs = self.model(
                 pixel_values=x_adv,
                 input_ids=input_ids_for_loss,
                 attention_mask=attention_mask_for_loss,
-                labels=labels,
+                #labels=labels,
+                labels=partial_labels,
                 image_sizes=image_sizes,
                 return_dict=True
             )
