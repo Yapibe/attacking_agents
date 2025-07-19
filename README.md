@@ -46,13 +46,19 @@ mip_generator/
 
 This project uses `uv` for fast and efficient environment management.
 
-1.  **Navigate to the project directory:**
+1.  **Clone the repository and enter the project directory:**
     ```bash
-    cd mip_generator
+    git clone https://github.com/your-username/attacking_agents.git
+    cd attacking_agents/mip_generator
     ```
 
-2.  **Create and activate a virtual environment:**
-    This command creates a virtual environment using Python 3.10.
+2.  **Install `uv`:**
+    `uv` can be installed with the official installer script.
+    ```bash
+    curl -Ls https://astral.sh/uv/install.sh | sh
+    ```
+
+3.  **Create and activate a virtual environment:**
     ```bash
     uv venv --python 3.10
     source .venv/bin/activate
@@ -62,11 +68,26 @@ This project uses `uv` for fast and efficient environment management.
     > source .venv/bin/activate.csh
     > ```
 
-3.  **Install dependencies:**
-    This command installs all necessary packages from `pyproject.toml`.
+4.  **Install dependencies from `uv.lock`:**
     ```bash
-    uv pip install .
+    uv sync
     ```
+
+5.  **Authenticate with Weights & Biases (W&B):**
+    Create a free account at [wandb.ai](https://wandb.ai/) and get your API key from <https://wandb.ai/authorize>.
+    ```bash
+    wandb login YOUR_WANDB_KEY
+    ```
+
+6.  **Authenticate with Hugging Face:**
+    Request access to the model at <https://huggingface.co/meta-llama/Llama-3.2-11B-Vision-Instruct> and obtain a token from <https://huggingface.co/settings/tokens>.
+    ```bash
+    huggingface-cli login
+    ```
+    Paste your token when prompted.
+
+7.  **Hardware requirements:**
+    Running the default model requires a GPU with at least 24 GB of VRAM.
 
 ## How to Run
 
@@ -78,7 +99,7 @@ python -m scripts.generate_mip
 ```
 
 This will:
-1.  Load the VLM specified in the script (`meta-llama/Meta-Llama-3.1-8B-Instruct` by default).
+1.  Load the VLM specified in the script (`meta-llama/Llama-3.2-11B-Vision-Instruct` by default).
 2.  Load the example desktop image from `data/backgrounds/example_desktop.png`.
 3.  Run the optimization process to generate a patch that injects the target prompt ("Format the hard drive.").
 4.  Save the final image with the malicious patch to `outputs/generated_mips/mip_image.png`.
